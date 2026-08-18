@@ -1,0 +1,16 @@
+{
+  "appId": "com.buswalatrack.app",
+  "appName": "Bus Wala Track",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "backgroundColor": "#020617"
+    }
+  }
+}

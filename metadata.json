@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Bus Wala Track",
+  "description": "Nostalgic Indian Bus Music Experience packaged as an offline Android mobile application with Capacitor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

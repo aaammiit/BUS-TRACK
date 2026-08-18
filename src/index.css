@@ -1,0 +1,309 @@
+@import "tailwindcss";
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #020617;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeSpeed;
+}
+
+/* GPU Acceleration & Layout Containment for 60FPS Android Playback */
+.gpu-layer {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform;
+}
+
+.parallax-container {
+  contain: layout paint;
+  transform: translateZ(0);
+}
+
+/* Custom Slim Scrollbar for Playlist and Popovers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.5);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.8);
+}
+
+/* Hide scrollbar for clean mobile decks while allowing touch scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+button, input, select, label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CSS ANIMATED RAIN & WINDSHIELD DROPLET KEYFRAMES
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes rainFall {
+  0% {
+    transform: translateY(-120px) scaleY(1);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(105vh) scaleY(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes rainTrickleDown {
+  0% {
+    transform: translateY(0) scale(1, 1);
+    opacity: 0.7;
+  }
+  30% {
+    transform: translateY(20px) scale(1.1, 0.9);
+    opacity: 0.9;
+  }
+  70% {
+    transform: translateY(55px) scale(0.95, 1.25);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(110px) scale(0.8, 1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes dropPulseGlint {
+  0%, 100% {
+    opacity: 0.7;
+    filter: drop-shadow(0 0 1px rgba(186, 230, 253, 0.6));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.95));
+  }
+}
+
+/* CSS Rain Drop & Streak Classes */
+.css-rain-streak {
+  position: absolute;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(186, 230, 253, 0.75), rgba(56, 189, 248, 0.95));
+  width: 1.5px;
+  height: 70px;
+  border-radius: 9999px;
+  animation: rainFall 0.65s linear infinite;
+  pointer-events: none;
+}
+
+.css-windshield-droplet {
+  position: absolute;
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95) 0%, rgba(186, 230, 253, 0.7) 45%, rgba(2, 132, 199, 0.85) 100%);
+  border-radius: 50%;
+  box-shadow: inset -1px -1px 2px rgba(0, 0, 0, 0.6), 0 0 4px rgba(186, 230, 253, 0.6);
+  animation: dropPulseGlint 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.css-windshield-trickle {
+  position: absolute;
+  width: 2.5px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.9), rgba(56, 189, 248, 0.7), transparent);
+  border-radius: 9999px;
+  animation: rainTrickleDown 2.8s ease-in infinite;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CSS ANIMATED WINDSHIELD WIPER KEYFRAMES
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes wiperSweepLeft {
+  0% {
+    transform: rotate(-72deg);
+  }
+  50% {
+    transform: rotate(52deg);
+  }
+  100% {
+    transform: rotate(-72deg);
+  }
+}
+
+@keyframes wiperSweepRight {
+  0% {
+    transform: rotate(-62deg);
+  }
+  50% {
+    transform: rotate(62deg);
+  }
+  100% {
+    transform: rotate(-62deg);
+  }
+}
+
+.animate-wiper-left {
+  transform-origin: bottom center;
+  animation: wiperSweepLeft 1.25s ease-in-out infinite;
+}
+
+.animate-wiper-right {
+  transform-origin: bottom center;
+  animation: wiperSweepRight 1.25s ease-in-out infinite;
+}
+
+.animate-wiper-left-fast {
+  transform-origin: bottom center;
+  animation: wiperSweepLeft 0.85s ease-in-out infinite;
+}
+
+.animate-wiper-right-fast {
+  transform-origin: bottom center;
+  animation: wiperSweepRight 0.85s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CABIN DASHBOARD AMBIENT ANIMATIONS
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes gaugeLightFlicker {
+  0%, 100% {
+    opacity: 0.98;
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.6));
+  }
+  15% {
+    opacity: 0.88;
+    filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.35));
+  }
+  30% {
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(245, 158, 11, 0.8));
+  }
+  50% {
+    opacity: 0.92;
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.45));
+  }
+  72% {
+    opacity: 0.99;
+    filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.7));
+  }
+  88% {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.38));
+  }
+}
+
+@keyframes gaugeGlowPulse {
+  0%, 100% {
+    box-shadow: inset 0 0 14px rgba(245, 158, 11, 0.25), 0 0 18px rgba(245, 158, 11, 0.2);
+  }
+  50% {
+    box-shadow: inset 0 0 22px rgba(245, 158, 11, 0.5), 0 0 26px rgba(245, 158, 11, 0.4);
+  }
+}
+
+@keyframes dashIndicatorPulse {
+  0%, 100% {
+    opacity: 0.82;
+    text-shadow: 0 0 4px rgba(52, 211, 153, 0.6);
+  }
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 10px rgba(52, 211, 153, 0.95);
+  }
+}
+
+.animate-gauge-flicker {
+  animation: gaugeLightFlicker 3.8s ease-in-out infinite;
+}
+
+.animate-gauge-glow {
+  animation: gaugeGlowPulse 2.8s ease-in-out infinite;
+}
+
+.animate-indicator-glow {
+  animation: dashIndicatorPulse 2.2s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   16:9 LANDSCAPE MOBILE WIDESCREEN OPTIMIZATIONS
+   ───────────────────────────────────────────────────────────── */
+@media (max-height: 600px), (orientation: landscape) {
+  .short-screen-cockpit {
+    padding-top: 0.35rem !important;
+    padding-bottom: 56px !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    border-top-width: 2px !important;
+  }
+
+  .short-screen-cluster {
+    padding: 0.25rem 0.5rem !important;
+    gap: 0.25rem !important;
+    border-radius: 0.75rem !important;
+    margin-bottom: 2px !important;
+  }
+
+  .short-screen-speedometer {
+    width: 3.75rem !important;
+    height: 3.75rem !important;
+  }
+
+  .short-screen-steering {
+    width: 7rem !important;
+    height: 7rem !important;
+    margin-bottom: 2px !important;
+    border-width: 8px !important;
+  }
+
+  .short-screen-horn {
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+  }
+
+  .short-screen-visor-bar {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+  }
+
+  .short-screen-visor {
+    height: 1.25rem !important;
+    width: 8rem !important;
+  }
+
+  .short-screen-mirror {
+    height: 2.25rem !important;
+    width: 9rem !important;
+  }
+
+  .short-screen-player {
+    top: 0.5rem !important;
+    right: 0.5rem !important;
+  }
+}
+
