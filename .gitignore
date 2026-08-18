@@ -1,8 +1,18 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+# Gradle
+.gradle/
+**/.gradle/
+
+# Gradle distributions
+android/gradle-*-bin.zip
+android/gradle-*/
+
+# Build output
+**/build/
+**/outputs/
+
+# Android Studio
+.idea/
+*.iml
+
+# Local configuration
+local.properties
