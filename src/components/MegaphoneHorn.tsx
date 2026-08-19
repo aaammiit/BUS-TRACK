@@ -1,22 +1,44 @@
 import React, { useState } from 'react';
-import { playBusHorn } from '../utils/audioSynth';
+import { playBusHorn, getGlobalHornRhythm, setGlobalHornRhythm } from '../utils/audioSynth';
+import { HornRhythm } from '../types';
 
 interface MegaphoneHornProps {
   className?: string;
   size?: number; // size in pixels
   hornVolume?: number;
+  hornRhythm?: HornRhythm;
   onHonk?: () => void;
+  onToggleRhythm?: (next: HornRhythm) => void;
   showText?: boolean;
+  showRhythmToggle?: boolean;
 }
 
 export const MegaphoneHorn: React.FC<MegaphoneHornProps> = ({
   className = '',
   size = 56,
   hornVolume = 0.85,
+  hornRhythm,
   onHonk,
+  onToggleRhythm,
   showText = true,
+  showRhythmToggle = true,
 }) => {
+  const currentRhythm = hornRhythm || getGlobalHornRhythm();
   const [isHonking, setIsHonking] = useState(false);
+
+  const cycleRhythm = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    const order: HornRhythm[] = ['classic', 'double', 'rhythmic'];
+    const curIdx = order.indexOf(currentRhythm);
+    const nextRhythm = order[(curIdx + 1) % order.length];
+    setGlobalHornRhythm(nextRhythm);
+    if (onToggleRhythm) {
+      onToggleRhythm(nextRhythm);
+    }
+  };
 
   const triggerHonk = (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
@@ -24,40 +46,57 @@ export const MegaphoneHorn: React.FC<MegaphoneHornProps> = ({
       e.preventDefault();
     }
     setIsHonking(true);
-    playBusHorn(hornVolume);
+    playBusHorn(hornVolume, currentRhythm);
     if (onHonk) onHonk();
 
+    const animDuration = currentRhythm === 'rhythmic' ? 1400 : currentRhythm === 'double' ? 650 : 450;
     setTimeout(() => {
       setIsHonking(false);
-    }, 450);
+    }, animDuration);
   };
 
+  const getRhythmLabel = (r: HornRhythm) => {
+    switch (r) {
+      case 'double':
+        return { short: '2X TAP', full: 'Double Tap', icon: '⚡⚡', color: 'text-amber-300 border-amber-500/80 bg-amber-950/80' };
+      case 'rhythmic':
+        return { short: 'RHYTHM', full: 'Rhythmic Constant', icon: '🎶', color: 'text-emerald-300 border-emerald-500/80 bg-emerald-950/80' };
+      case 'classic':
+      default:
+        return { short: '1X SINGLE', full: 'Classic Single Honk', icon: '🎺', color: 'text-rose-300 border-rose-500/80 bg-rose-950/80' };
+    }
+  };
+
+  const rInfo = getRhythmLabel(currentRhythm);
+
   return (
-    <button
-      onClick={triggerHonk}
-      onTouchStart={triggerHonk}
-      aria-label="Honk Bus Horn"
-      title="Tap to Honk Bus Horn (Loudspeaker Megaphone)"
-      className={`group relative pointer-events-auto flex items-center justify-center cursor-pointer transition-transform duration-100 select-none active:scale-90 focus:outline-none ${className}`}
-      style={{ touchAction: 'manipulation' }}
-    >
+    <div className={`group relative pointer-events-auto inline-flex items-center gap-1 select-none ${className}`}>
       {/* Soundwave Blast Glow Effect when Honking */}
       {isHonking && (
-        <div className="absolute inset-0 -m-3 rounded-full bg-amber-400/20 blur-md animate-ping pointer-events-none" />
+        <div className="absolute inset-0 -m-3 rounded-full bg-rose-500/25 blur-lg animate-ping pointer-events-none" />
       )}
 
-      {/* Megaphone Loudspeaker Vector Artwork matching uploaded reference */}
-      <div className="relative flex items-center">
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 100 100"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className={`transition-transform duration-150 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)] ${
-            isHonking ? 'scale-110 -rotate-6' : 'hover:scale-105'
-          }`}
-        >
+      {/* Main Horn Button */}
+      <button
+        onClick={triggerHonk}
+        onTouchStart={triggerHonk}
+        aria-label={`Honk Bus Horn (${rInfo.full})`}
+        title={`Tap to Honk (${rInfo.full})`}
+        className="relative flex items-center justify-center cursor-pointer transition-transform duration-100 active:scale-90 focus:outline-none"
+        style={{ touchAction: 'manipulation' }}
+      >
+        {/* Megaphone Loudspeaker Vector Artwork matching uploaded reference */}
+        <div className="relative flex items-center">
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 100 100"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className={`transition-transform duration-150 drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)] ${
+              isHonking ? 'scale-110 -rotate-6' : 'hover:scale-105'
+            }`}
+          >
           {/* Defs for glossy RED megaphone gradients */}
           <defs>
             <linearGradient id="hornBodyGradRed" x1="20%" y1="15%" x2="80%" y2="85%">
@@ -205,21 +244,41 @@ export const MegaphoneHorn: React.FC<MegaphoneHornProps> = ({
             strokeWidth="3"
           />
         </svg>
+      </div>
+      </button>
 
-        {showText && (
-          <div className="flex flex-col ml-1 select-none pointer-events-none">
-            <span
-              className={`font-mono font-black text-[9px] sm:text-[10px] tracking-wider uppercase px-1.5 py-0.5 rounded border transition-colors ${
+      {/* Label and Horn Rhythm Toggle Badge */}
+      {(showText || showRhythmToggle) && (
+        <div className="flex flex-col gap-0.5 select-none items-start">
+          {showText && (
+            <button
+              onClick={triggerHonk}
+              className={`font-mono font-black text-[8px] sm:text-[9px] tracking-wider uppercase px-1.5 py-0.5 rounded border transition-colors cursor-pointer active:scale-95 ${
                 isHonking
                   ? 'bg-rose-500 text-white border-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.9)]'
-                  : 'bg-stone-900/90 text-rose-400 border-rose-800/80 group-hover:border-rose-500'
+                  : 'bg-stone-900/95 text-rose-400 border-rose-800/80 hover:border-rose-400 hover:text-rose-200'
               }`}
+              title={`Honk (${rInfo.full})`}
             >
               HORN
-            </span>
-          </div>
-        )}
-      </div>
-    </button>
+            </button>
+          )}
+
+          {/* Rhythm Mode Toggle Button */}
+          {showRhythmToggle && (
+            <button
+              onClick={cycleRhythm}
+              onTouchStart={cycleRhythm}
+              aria-label={`Horn Rhythm: ${rInfo.full}. Click to cycle.`}
+              title={`Horn Rhythm: ${rInfo.full} (Click to cycle between Classic Single Honk, Double Tap, and Rhythmic Constant)`}
+              className={`font-mono font-black text-[7px] sm:text-[8px] tracking-tight uppercase px-1.5 py-0.5 rounded border transition flex items-center gap-0.5 cursor-pointer shadow-sm active:scale-95 ${rInfo.color}`}
+            >
+              <span>{rInfo.icon}</span>
+              <span>{rInfo.short}</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 };

@@ -1,11 +1,13 @@
-// Web Audio API & MP3 audio helper for Indian Bus Horn sound and procedural demo tracks
 import { saveCustomHornBlob, getCustomHornRecord, clearCustomHornFromDB } from './db';
+import { HornRhythm, JourneySpeed } from '../types';
 
 let audioCtx: AudioContext | null = null;
 let hornAudioElement: HTMLAudioElement | null = null;
 let defaultHornWavBlobUrl: string | null = null;
 let customHornMp3Url: string | null = null;
 let customHornFileName: string | null = null;
+let activeHornRhythm: HornRhythm = 'classic';
+let activeRhythmTimeouts: NodeJS.Timeout[] = [];
 
 // Initialize custom horn from IndexedDB if previously saved
 getCustomHornRecord().then((rec) => {
@@ -155,50 +157,107 @@ export function isCustomHornActive(): boolean {
   return customHornMp3Url !== null;
 }
 
+export function setGlobalHornRhythm(rhythm: HornRhythm) {
+  activeHornRhythm = rhythm;
+}
+
+export function getGlobalHornRhythm(): HornRhythm {
+  return activeHornRhythm;
+}
+
+export function stopHornRhythmSequence() {
+  activeRhythmTimeouts.forEach((t) => clearTimeout(t));
+  activeRhythmTimeouts = [];
+  if (hornAudioElement) {
+    try {
+      hornAudioElement.pause();
+      hornAudioElement.currentTime = 0;
+    } catch {
+      // Ignore pause errors
+    }
+  }
+}
+
 /**
- * Play authentic Indian Bus Horn using generated default WAV sound or custom MP3 file
+ * Play a single punchy burst of the bus horn (HTML5 Audio or Web Audio Synth)
  */
-export function playBusHorn(volume: number = 0.8) {
+function playSingleHornBurst(volume: number = 0.8, durationSec: number = 0.55) {
   if (volume <= 0) return;
 
-  // Use custom MP3 URL if set, otherwise default to pre-rendered authentic air horn WAV
   const targetAudioUrl = customHornMp3Url || getDefaultHornWavUrl();
 
-  if (!targetAudioUrl) {
-    playSynthBusHorn(volume);
-    return;
+  if (targetAudioUrl) {
+    try {
+      const audio = new Audio(targetAudioUrl);
+      audio.volume = Math.max(0, Math.min(1, volume));
+      audio.currentTime = 0;
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          if (durationSec < 0.8) {
+            setTimeout(() => {
+              try {
+                audio.pause();
+              } catch {
+                // Ignore
+              }
+            }, Math.floor(durationSec * 1000));
+          }
+        }).catch(() => {
+          playSynthBusHorn(volume, durationSec);
+        });
+      }
+      return;
+    } catch {
+      // Fallback to synth below
+    }
   }
 
-  if (!hornAudioElement) {
-    hornAudioElement = new Audio(targetAudioUrl);
-  } else if (hornAudioElement.src !== new URL(targetAudioUrl, window.location.href).href) {
-    hornAudioElement.src = targetAudioUrl;
-  }
+  playSynthBusHorn(volume, durationSec);
+}
 
-  hornAudioElement.volume = Math.max(0, Math.min(1, volume));
-  hornAudioElement.currentTime = 0;
+/**
+ * Play authentic Indian Bus Horn based on selected rhythm mode
+ * Modes: 'classic' (Single Honk) | 'double' (Double Tap) | 'rhythmic' (Rhythmic Constant)
+ */
+export function playBusHorn(volume: number = 0.85, rhythm?: HornRhythm) {
+  if (volume <= 0) return;
 
-  const playPromise = hornAudioElement.play();
+  const selectedRhythm = rhythm || activeHornRhythm;
+  stopHornRhythmSequence();
 
-  if (playPromise !== undefined) {
-    playPromise.catch(() => {
-      // If HTMLAudioElement play fails or is blocked, fallback to Web Audio API synth
-      playSynthBusHorn(volume);
-    });
+  if (selectedRhythm === 'classic') {
+    // 1. Classic Single Honk: Single authoritative air horn blast
+    playSingleHornBurst(volume, 0.65);
+  } else if (selectedRhythm === 'double') {
+    // 2. Double Tap: Rapid successive "Poo - Poo!"
+    playSingleHornBurst(volume, 0.22);
+    const t1 = setTimeout(() => {
+      playSingleHornBurst(volume, 0.35);
+    }, 220);
+    activeRhythmTimeouts.push(t1);
+  } else if (selectedRhythm === 'rhythmic') {
+    // 3. Rhythmic Constant: Iconic Indian highway cadence (Short-Short-Long-Short-Long)
+    playSingleHornBurst(volume, 0.14); // Beat 1
+    const t1 = setTimeout(() => playSingleHornBurst(volume, 0.14), 180); // Beat 2
+    const t2 = setTimeout(() => playSingleHornBurst(volume, 0.28), 380); // Beat 3
+    const t3 = setTimeout(() => playSingleHornBurst(volume, 0.15), 720); // Beat 4
+    const t4 = setTimeout(() => playSingleHornBurst(volume, 0.42), 940); // Beat 5 (Grand finale)
+    activeRhythmTimeouts.push(t1, t2, t3, t4);
   }
 }
 
 /**
  * Fallback Web Audio API Dual-Tone Air Horn ("PHOO PHOO / HONK HONK!")
  */
-function playSynthBusHorn(volume: number = 0.8) {
+function playSynthBusHorn(volume: number = 0.8, durationSec: number = 0.55) {
   try {
     const ctx = getAudioContext();
     const now = ctx.currentTime;
 
     // Dual-tone pneumatic air horn frequencies (classic Leyland/Tata bus pitch)
-    const freq1 = 380; // Main air horn frequency
-    const freq2 = 475; // Harmonic dissonance air horn frequency
+    const freq1 = 378; // Main air horn frequency
+    const freq2 = 472; // Harmonic dissonance air horn frequency
 
     const osc1 = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
@@ -209,23 +268,23 @@ function playSynthBusHorn(volume: number = 0.8) {
     osc2.type = 'sawtooth';
 
     // Slight pitch bend up at start like pneumatic air pressure building up
-    osc1.frequency.setValueAtTime(freq1 * 0.92, now);
-    osc1.frequency.exponentialRampToValueAtTime(freq1, now + 0.05);
+    osc1.frequency.setValueAtTime(freq1 * 0.94, now);
+    osc1.frequency.exponentialRampToValueAtTime(freq1, now + 0.04);
     
-    osc2.frequency.setValueAtTime(freq2 * 0.92, now);
-    osc2.frequency.exponentialRampToValueAtTime(freq2, now + 0.05);
+    osc2.frequency.setValueAtTime(freq2 * 0.94, now);
+    osc2.frequency.exponentialRampToValueAtTime(freq2, now + 0.04);
 
     // Resonant lowpass filter for brassy horn body
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1400, now);
-    filter.Q.setValueAtTime(3, now);
+    filter.frequency.setValueAtTime(1450, now);
+    filter.Q.setValueAtTime(3.2, now);
 
-    // Envelope for double honk or solid loud honk
-    const duration = 0.55;
+    // Envelope for punchy air blast
+    const dur = Math.max(0.12, durationSec);
     gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(volume * 0.7, now + 0.04);
-    gainNode.gain.setValueAtTime(volume * 0.65, now + duration - 0.08);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gainNode.gain.linearRampToValueAtTime(volume * 0.72, now + 0.03);
+    gainNode.gain.setValueAtTime(volume * 0.68, now + dur - 0.04);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
     osc1.connect(filter);
     osc2.connect(filter);
@@ -234,8 +293,8 @@ function playSynthBusHorn(volume: number = 0.8) {
 
     osc1.start(now);
     osc2.start(now);
-    osc1.stop(now + duration);
-    osc2.stop(now + duration);
+    osc1.stop(now + dur);
+    osc2.stop(now + dur);
   } catch (err) {
     console.error('Error playing bus horn synth:', err);
   }
@@ -709,6 +768,186 @@ export function playConductorWhistleSound(volume: number = 0.25) {
  * Passenger Chatter / Murmur Ambient sound (Soft background crowd chatter on stationary bus)
  */
 let chatterIntervalId: number | null = null;
+
+/**
+ * Road Rumble Audio Synthesizer (Continuous low-frequency audio loop while bus is moving)
+ * - Deep asphalt roll & tire friction vibration (filtered Brownian noise)
+ * - Low harmonic diesel chassis hum (dual low-frequency oscillators)
+ * - Synced with journeySpeed: increases pitch & volume as bus goes faster ('slow' -> 'normal' -> 'fast')
+ */
+let roadRumbleCtx: AudioContext | null = null;
+let roadRumbleGainNode: GainNode | null = null;
+let roadRumbleFilter: BiquadFilterNode | null = null;
+let roadRumbleOsc1: OscillatorNode | null = null;
+let roadRumbleOsc2: OscillatorNode | null = null;
+let roadRumbleNoiseSource: AudioBufferSourceNode | null = null;
+let roadRumbleLfo: OscillatorNode | null = null;
+let isRumbleRunning: boolean = false;
+
+function initRoadRumbleAudio() {
+  if (isRumbleRunning && roadRumbleCtx) return;
+
+  try {
+    const ctx = getAudioContext();
+    roadRumbleCtx = ctx;
+
+    // 1. Create Brownian / low-frequency road texture noise buffer (3-second seamless loop)
+    const bufferSize = ctx.sampleRate * 3;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    let lastOut = 0.0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      // Brownian integration filter
+      data[i] = (lastOut + 0.02 * white) / 1.02;
+      lastOut = data[i];
+      data[i] *= 2.8; // boost brownian amplitude
+    }
+
+    roadRumbleNoiseSource = ctx.createBufferSource();
+    roadRumbleNoiseSource.buffer = noiseBuffer;
+    roadRumbleNoiseSource.loop = true;
+
+    // 2. Resonant Lowpass filter to keep only sub-bass road frequencies
+    roadRumbleFilter = ctx.createBiquadFilter();
+    roadRumbleFilter.type = 'lowpass';
+    roadRumbleFilter.frequency.setValueAtTime(110, ctx.currentTime);
+    roadRumbleFilter.Q.setValueAtTime(2.2, ctx.currentTime);
+
+    // 3. Subtle road bump cadence LFO
+    roadRumbleLfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    roadRumbleLfo.type = 'sine';
+    roadRumbleLfo.frequency.setValueAtTime(2.4, ctx.currentTime);
+    lfoGain.gain.setValueAtTime(18, ctx.currentTime);
+    roadRumbleLfo.connect(roadRumbleFilter.frequency);
+
+    // 4. Dual sub-harmonic engine and chassis rumble oscillators
+    roadRumbleOsc1 = ctx.createOscillator();
+    roadRumbleOsc1.type = 'triangle';
+    roadRumbleOsc1.frequency.setValueAtTime(46, ctx.currentTime);
+
+    roadRumbleOsc2 = ctx.createOscillator();
+    roadRumbleOsc2.type = 'sine';
+    roadRumbleOsc2.frequency.setValueAtTime(68, ctx.currentTime);
+
+    // 5. Master rumble gain node
+    roadRumbleGainNode = ctx.createGain();
+    roadRumbleGainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
+
+    // Connect noise path
+    roadRumbleNoiseSource.connect(roadRumbleFilter);
+    roadRumbleFilter.connect(roadRumbleGainNode);
+
+    // Connect oscillators
+    roadRumbleOsc1.connect(roadRumbleGainNode);
+    roadRumbleOsc2.connect(roadRumbleGainNode);
+
+    // Connect to destination
+    roadRumbleGainNode.connect(ctx.destination);
+
+    // Start audio sources
+    const now = ctx.currentTime;
+    roadRumbleNoiseSource.start(now);
+    roadRumbleLfo.start(now);
+    roadRumbleOsc1.start(now);
+    roadRumbleOsc2.start(now);
+
+    isRumbleRunning = true;
+  } catch (err) {
+    console.warn('Road rumble initialization error:', err);
+  }
+}
+
+/**
+ * Update road rumble state in real-time according to speed and motion
+ */
+export function updateRoadRumble(
+  journeySpeed: JourneySpeed,
+  isMoving: boolean,
+  isMuted: boolean = false,
+  masterVolume: number = 1.0
+) {
+  try {
+    if (!isRumbleRunning) {
+      if (isMoving && !isMuted) {
+        initRoadRumbleAudio();
+      } else {
+        return;
+      }
+    }
+
+    if (!roadRumbleCtx || !roadRumbleGainNode) return;
+    const now = roadRumbleCtx.currentTime;
+
+    if (!isMoving || isMuted || masterVolume <= 0) {
+      // Smoothly fade out to inaudible when bus is stopped or muted
+      roadRumbleGainNode.gain.cancelScheduledValues(now);
+      roadRumbleGainNode.gain.setValueAtTime(Math.max(0.0001, roadRumbleGainNode.gain.value), now);
+      roadRumbleGainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      return;
+    }
+
+    // Ensure audio context is running
+    if (roadRumbleCtx.state === 'suspended') {
+      roadRumbleCtx.resume();
+    }
+
+    // Calculate speed-proportional sound parameters (Pitch & Volume)
+    let targetGain = 0.048 * masterVolume;
+    let osc1Freq = 48; // Base rumble (Hz)
+    let osc2Freq = 68; // Harmonic hum (Hz)
+    let filterCutoff = 115; // Road noise bandwidth (Hz)
+    let lfoRate = 2.4; // Road surface fluctuation cadence (Hz)
+
+    if (journeySpeed === 'slow') {
+      targetGain = 0.034 * masterVolume;
+      osc1Freq = 36;
+      osc2Freq = 52;
+      filterCutoff = 85;
+      lfoRate = 1.6;
+    } else if (journeySpeed === 'fast') {
+      targetGain = 0.068 * masterVolume;
+      osc1Freq = 64;
+      osc2Freq = 90;
+      filterCutoff = 160;
+      lfoRate = 3.6;
+    }
+
+    // Smooth ramp for organic acceleration / pitch-shift transition
+    roadRumbleGainNode.gain.cancelScheduledValues(now);
+    roadRumbleGainNode.gain.setValueAtTime(Math.max(0.0001, roadRumbleGainNode.gain.value), now);
+    roadRumbleGainNode.gain.linearRampToValueAtTime(targetGain, now + 0.3);
+
+    if (roadRumbleOsc1 && roadRumbleOsc2 && roadRumbleFilter && roadRumbleLfo) {
+      roadRumbleOsc1.frequency.cancelScheduledValues(now);
+      roadRumbleOsc1.frequency.linearRampToValueAtTime(osc1Freq, now + 0.3);
+
+      roadRumbleOsc2.frequency.cancelScheduledValues(now);
+      roadRumbleOsc2.frequency.linearRampToValueAtTime(osc2Freq, now + 0.3);
+
+      roadRumbleFilter.frequency.cancelScheduledValues(now);
+      roadRumbleFilter.frequency.linearRampToValueAtTime(filterCutoff, now + 0.3);
+
+      roadRumbleLfo.frequency.cancelScheduledValues(now);
+      roadRumbleLfo.frequency.linearRampToValueAtTime(lfoRate, now + 0.3);
+    }
+  } catch (err) {
+    console.warn('Road rumble update error:', err);
+  }
+}
+
+export function stopRoadRumbleAudio() {
+  if (!isRumbleRunning || !roadRumbleCtx || !roadRumbleGainNode) return;
+  try {
+    const now = roadRumbleCtx.currentTime;
+    roadRumbleGainNode.gain.cancelScheduledValues(now);
+    roadRumbleGainNode.gain.setValueAtTime(Math.max(0.0001, roadRumbleGainNode.gain.value), now);
+    roadRumbleGainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+  } catch {
+    // Ignore shutdown error
+  }
+}
 
 export function playPassengerChatterBurst(volume: number = 0.06) {
   try {

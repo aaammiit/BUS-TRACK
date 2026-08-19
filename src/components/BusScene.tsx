@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { SceneConfig, SceneType, JourneySpeed, ViewMode } from '../types';
+import { SceneConfig, SceneType, JourneySpeed, ViewMode, HornRhythm } from '../types';
 import { SCENES } from '../data/scenes';
 import { WindshieldWiper } from './WindshieldWiper';
 import { RandomEventsOverlay } from './RandomEventsOverlay';
@@ -16,6 +16,8 @@ interface BusSceneProps {
   currentTime?: number;
   duration?: number;
   viewMode?: ViewMode;
+  hornRhythm?: HornRhythm;
+  onToggleHornRhythm?: (rhythm: HornRhythm) => void;
   onViewModeChange?: (view: ViewMode) => void;
   onSceneChange?: (sceneType: SceneType) => void;
   onSpeedChange?: (speed: JourneySpeed) => void;
@@ -116,6 +118,8 @@ export const BusScene: React.FC<BusSceneProps> = ({
   currentTime = 0,
   duration = 0,
   viewMode: propViewMode,
+  hornRhythm = 'classic',
+  onToggleHornRhythm,
   onViewModeChange,
   onSceneChange,
   onSpeedChange,
@@ -125,6 +129,28 @@ export const BusScene: React.FC<BusSceneProps> = ({
   const [manualHalt, setManualHalt] = useState(false);
   const effectiveIsAtBusStop = isAtBusStop || manualHalt;
   const isMoving = isPlaying && !effectiveIsAtBusStop;
+
+  // Real-time trip distance and average speed states
+  const [tripDistanceKm, setTripDistanceKm] = useState(3.6);
+  const [totalDriveSeconds, setTotalDriveSeconds] = useState(180);
+  const [totalDistanceAccum, setTotalDistanceAccum] = useState(3.6);
+
+  useEffect(() => {
+    if (!isMoving) return;
+
+    const speedKmH = journeySpeed === 'fast' ? 90 : journeySpeed === 'slow' ? 45 : 72;
+    const interval = setInterval(() => {
+      setTripDistanceKm((prev) => prev + (speedKmH / 3600) * 0.5);
+      setTotalDistanceAccum((prev) => prev + (speedKmH / 3600) * 0.5);
+      setTotalDriveSeconds((prev) => prev + 0.5);
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [isMoving, journeySpeed]);
+
+  const averageSpeedKmH = totalDriveSeconds > 0
+    ? Math.round(totalDistanceAccum / (totalDriveSeconds / 3600))
+    : (journeySpeed === 'fast' ? 90 : journeySpeed === 'slow' ? 45 : 72);
 
   // Time of Day state & calculation
   const [timeOverride, setTimeOverride] = useState<'auto' | 'sunrise' | 'midday' | 'sunset' | 'midnight'>('auto');
@@ -347,7 +373,111 @@ export const BusScene: React.FC<BusSceneProps> = ({
   const nextFeatureText = currentCurve.phaseLabel;
   const nextFeatureIcon = currentCurve.phaseIcon;
 
-  // Ambient Color Temperature Shift & Bus Stop Overlay (High-performance GPU-friendly overlay)
+  // Dynamic Dashboard Gauge Backlight Intensity & Color Shift
+  // Warmer & brighter at Sunset/Autumn, cooler & dimmer at Rainy/Night
+  const isRainyScene = sceneType === 'rainy' || activeScene.ambientParticle === 'rain';
+  const isNightScene = sceneType === 'night' || tod.phaseName === 'MIDNIGHT';
+  const isSunsetPhase = tod.phaseName === 'SUNSET DUSK' || sceneType === 'autumn';
+  const isSunrisePhase = tod.phaseName === 'SUNRISE';
+
+  const gaugeTheme = (() => {
+    if (isRainyScene) {
+      return {
+        themeName: 'COOL RAINY',
+        hudBg: 'bg-slate-950/95',
+        hudBorder: 'border-sky-500/50',
+        hudGlow: '0 4px 20px rgba(56, 189, 248, 0.25)',
+        clusterGlow: '0 0 25px rgba(56, 189, 248, 0.20)',
+        textColor: 'text-sky-300',
+        subTextColor: 'text-sky-200/70',
+        dialBorder: 'border-sky-400/60',
+        dialShadow: 'inset 0 0 10px rgba(56, 189, 248, 0.25)',
+        backlightFlicker: 'bg-sky-500/5',
+        needleColor: '#38bdf8',
+        speedUnitColor: 'text-sky-400',
+        glowColor: '#38bdf8',
+        clusterBorder: 'border-slate-700/90',
+        backlightIntensity: 0.55
+      };
+    }
+    if (isNightScene) {
+      return {
+        themeName: 'MIDNIGHT NEON',
+        hudBg: 'bg-slate-950/95',
+        hudBorder: 'border-cyan-500/70',
+        hudGlow: '0 4px 25px rgba(6, 182, 212, 0.40)',
+        clusterGlow: '0 0 30px rgba(6, 182, 212, 0.35)',
+        textColor: 'text-cyan-400',
+        subTextColor: 'text-cyan-200/80',
+        dialBorder: 'border-cyan-400/80',
+        dialShadow: 'inset 0 0 16px rgba(6, 182, 212, 0.40), 0 0 12px rgba(6, 182, 212, 0.25)',
+        backlightFlicker: 'bg-cyan-500/10',
+        needleColor: '#f43f5e',
+        speedUnitColor: 'text-cyan-400',
+        glowColor: '#06b6d4',
+        clusterBorder: 'border-cyan-900/90',
+        backlightIntensity: 0.70
+      };
+    }
+    if (isSunsetPhase) {
+      return {
+        themeName: 'WARM SUNSET',
+        hudBg: 'bg-stone-950/95',
+        hudBorder: 'border-orange-500/80',
+        hudGlow: '0 4px 30px rgba(249, 115, 22, 0.60)',
+        clusterGlow: '0 0 35px rgba(249, 115, 22, 0.55)',
+        textColor: 'text-orange-400',
+        subTextColor: 'text-amber-200',
+        dialBorder: 'border-orange-500/90',
+        dialShadow: 'inset 0 0 18px rgba(249, 115, 22, 0.50), 0 0 20px rgba(249, 115, 22, 0.35)',
+        backlightFlicker: 'bg-orange-500/15',
+        needleColor: '#f43f5e',
+        speedUnitColor: 'text-orange-400',
+        glowColor: '#f97316',
+        clusterBorder: 'border-orange-800/90',
+        backlightIntensity: 1.0
+      };
+    }
+    if (isSunrisePhase) {
+      return {
+        themeName: 'GOLDEN DAWN',
+        hudBg: 'bg-stone-950/92',
+        hudBorder: 'border-amber-400/70',
+        hudGlow: '0 4px 25px rgba(251, 146, 60, 0.45)',
+        clusterGlow: '0 0 28px rgba(251, 146, 60, 0.40)',
+        textColor: 'text-amber-300',
+        subTextColor: 'text-amber-100/85',
+        dialBorder: 'border-amber-400/80',
+        dialShadow: 'inset 0 0 14px rgba(251, 146, 60, 0.35)',
+        backlightFlicker: 'bg-amber-400/10',
+        needleColor: '#fb7185',
+        speedUnitColor: 'text-amber-400',
+        glowColor: '#fb923c',
+        clusterBorder: 'border-amber-800/80',
+        backlightIntensity: 0.85
+      };
+    }
+    // Default Midday
+    return {
+      themeName: 'MIDDAY GOLD',
+      hudBg: 'bg-stone-950/90',
+      hudBorder: 'border-amber-500/60',
+      hudGlow: '0 4px 22px rgba(245, 158, 11, 0.35)',
+      clusterGlow: '0 0 25px rgba(245, 158, 11, 0.30)',
+      textColor: 'text-amber-400',
+      subTextColor: 'text-amber-300/80',
+      dialBorder: 'border-amber-500/80',
+      dialShadow: 'inset 0 0 12px rgba(245, 158, 11, 0.30)',
+      backlightFlicker: 'bg-amber-500/6',
+      needleColor: '#ef4444',
+      speedUnitColor: 'text-amber-400',
+      glowColor: '#f59e0b',
+      clusterBorder: 'border-stone-700/90',
+      backlightIntensity: 0.75
+    };
+  })();
+
+  // Ambient Color Temperature Shift & Bus Stop Overlay & Top Right Speedometer
   const renderTopDashboardHUD = () => (
     <>
       {/* VIEWPORT COLOR TEMPERATURE SHIFT OVERLAY (TRACK PROGRESS) */}
@@ -363,6 +493,121 @@ export const BusScene: React.FC<BusSceneProps> = ({
         currentStopName={currentStopName}
         onResumeJourney={() => setManualHalt(false)}
       />
+
+      {/* TOP-LEFT CORNER INTERACTIVE MEGAPHONE HORN (NO CONTAINER BOX, NO TEXT) */}
+      <div 
+        aria-label="Bus Horn"
+        className="fixed top-3 left-3 sm:top-4 sm:left-4 z-40 flex items-center select-none pointer-events-auto"
+        style={{
+          paddingTop: 'max(0px, env(safe-area-inset-top))',
+          paddingLeft: 'max(0px, env(safe-area-inset-left))',
+        }}
+      >
+        <MegaphoneHorn 
+          size={48} 
+          hornVolume={0.85} 
+          hornRhythm={hornRhythm}
+          onToggleRhythm={onToggleHornRhythm}
+          showText={false} 
+          showRhythmToggle={false}
+        />
+      </div>
+
+      {/* MIDDLE-LEFT CAMERA VIEW SWITCHER HUD (VERTICAL ICONS ONLY) */}
+      <div 
+        aria-label="Camera Views"
+        className="fixed top-1/2 -translate-y-1/2 left-2 sm:left-3 z-40 flex flex-col items-center select-none pointer-events-auto"
+        style={{
+          paddingLeft: 'max(0px, env(safe-area-inset-left))',
+        }}
+      >
+        <div className="bg-stone-950/90 border border-amber-500/60 shadow-[0_4px_25px_rgba(0,0,0,0.85)] backdrop-blur-md rounded-xl p-1 flex flex-col gap-1 text-amber-100">
+          {[
+            { id: 'straight', label: 'Rear View', icon: '🛣️' },
+            { id: 'side', label: 'Side View', icon: '🚌' },
+            { id: 'cabin', label: 'Cabin View', icon: '🚘' },
+          ].map((v) => (
+            <button
+              key={v.id}
+              onClick={() => onViewModeChange?.(v.id as ViewMode)}
+              className={`w-7.5 h-7.5 sm:w-8.5 sm:h-8.5 rounded-lg text-sm sm:text-base transition-all duration-150 flex items-center justify-center cursor-pointer active:scale-90 ${
+                viewMode === v.id
+                  ? 'bg-gradient-to-tr from-amber-500 to-amber-400 text-stone-950 shadow-[0_0_12px_rgba(245,158,11,0.85)] scale-[1.05]'
+                  : 'hover:bg-stone-800/90 opacity-75 hover:opacity-100'
+              }`}
+              title={`Switch to ${v.label}`}
+            >
+              <span>{v.icon}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* TOP-RIGHT CORNER SPEEDOMETER & TRIP HUD (SYNCED WITH GAUGE THEME & BACKLIGHT) */}
+      <div 
+        aria-label="Speedometer and Trip Dashboard"
+        className="fixed top-3 right-3 sm:top-4 sm:right-4 z-40 flex items-center gap-1.5 select-none pointer-events-auto font-mono"
+        style={{
+          paddingTop: 'max(0px, env(safe-area-inset-top))',
+          paddingRight: 'max(0px, env(safe-area-inset-right))',
+        }}
+      >
+        <div 
+          className={`${gaugeTheme.hudBg} border ${gaugeTheme.hudBorder} backdrop-blur-md rounded-xl p-1.5 sm:p-2 flex items-center gap-2 text-amber-100 transition-all duration-500`}
+          style={{
+            boxShadow: gaugeTheme.hudGlow
+          }}
+        >
+          {/* Speed Toggle & Dynamic Needle Icon */}
+          <button
+            onClick={() => {
+              if (!onSpeedChange) return;
+              const speeds: JourneySpeed[] = ['slow', 'normal', 'fast'];
+              const curIdx = speeds.indexOf(journeySpeed as JourneySpeed);
+              const nextIdx = (curIdx < 0 ? 0 : curIdx + 1) % speeds.length;
+              onSpeedChange(speeds[nextIdx]);
+            }}
+            className={`flex items-center gap-2 px-2 py-1 rounded-lg bg-stone-900/90 hover:bg-stone-800 border ${gaugeTheme.hudBorder} active:scale-95 transition cursor-pointer shadow-inner`}
+            title="Speedometer: Click to toggle Cruise Speed (SLOW 45 / NORM 72 / FAST 90)"
+          >
+            {/* Pulsing Movement Indicator */}
+            <span className={`w-2 h-2 rounded-full ${isMoving ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+            
+            {/* Speed Value & KM/H */}
+            <div className="flex flex-col items-start leading-none">
+              <div className="flex items-baseline gap-1">
+                <span className="font-black text-base sm:text-xl text-white tracking-tight">
+                  {isMoving ? (journeySpeed === 'fast' ? '90' : journeySpeed === 'slow' ? '45' : '72') : '0'}
+                </span>
+                <span className={`text-[8px] sm:text-[9px] font-bold ${gaugeTheme.speedUnitColor}`}>{gaugeTheme.themeName.split(' ')[0]}</span>
+              </div>
+              <span className={`text-[7px] font-bold uppercase tracking-wider ${gaugeTheme.subTextColor}`}>
+                {effectiveIsAtBusStop ? 'STOPPED' : !isPlaying ? 'IDLE' : journeySpeed}
+              </span>
+            </div>
+          </button>
+
+          {/* Trip Meter & Average Speed (Click to Reset) */}
+          <div 
+            className="flex flex-col text-[7.5px] sm:text-[8.5px] leading-tight text-amber-200/90 border-l border-amber-900/70 pl-2 cursor-pointer hover:text-amber-100 transition"
+            title="Trip Distance & Average Speed (Click to reset trip)"
+            onClick={() => {
+              setTripDistanceKm(0);
+              setTotalDistanceAccum(0);
+              setTotalDriveSeconds(0);
+            }}
+          >
+            <div className="flex items-center justify-between gap-1.5">
+              <span className={`font-bold ${gaugeTheme.textColor}`}>TRIP</span>
+              <span className="font-bold text-white">{tripDistanceKm.toFixed(1)} <span className="text-[6.5px] text-amber-500/80">KM</span></span>
+            </div>
+            <div className="flex items-center justify-between gap-1.5 mt-0.5">
+              <span className={`font-bold ${gaugeTheme.textColor}`}>AVG</span>
+              <span className="font-bold text-emerald-400">{averageSpeedKmH} <span className="text-[6.5px] text-amber-500/80">KM/H</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 
@@ -409,7 +654,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
           <div
             className="absolute inset-0 transition-transform duration-100 ease-out origin-bottom"
             style={{
-              transform: `rotate(${-busTiltAngle * 0.95}deg) translateX(${-currentCurve.angle * 9.5 - currentCurve.x * 0.18}px) translateY(${Math.abs(busTiltAngle) * 0.55}px) scale(1.16)`
+              transform: `rotate(${-busTiltAngle * 0.4}deg) translateX(${-currentCurve.angle * 1.8}px) scale(1.06)`
             }}
           >
             {/* Sky Gradient */}
@@ -436,8 +681,11 @@ export const BusScene: React.FC<BusSceneProps> = ({
               </div>
             </div>
 
-            {/* Horizon Mountain Ranges with Snow Caps */}
-            <div className="absolute inset-x-0 top-[20%] h-[22%] pointer-events-none opacity-90">
+            {/* Horizon Mountain Ranges with Snow Caps & Turning Parallax */}
+            <div 
+              className="absolute inset-x-0 top-[20%] h-[22%] pointer-events-none opacity-90 transition-transform duration-100 ease-out"
+              style={{ transform: `translate3d(${-currentCurve.x * 0.12}px, 0, 0)` }}
+            >
               <svg className="w-full h-full" viewBox="0 0 1000 120" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="cabinMountainGrad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -471,10 +719,6 @@ export const BusScene: React.FC<BusSceneProps> = ({
                     <stop offset="0%" stopColor="#234a22" />
                     <stop offset="100%" stopColor="#112a1d" />
                   </linearGradient>
-                  <linearGradient id="cabinGantryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="#15803d" />
-                    <stop offset="100%" stopColor="#064e3b" />
-                  </linearGradient>
                   <linearGradient id="cabinRumbleRed" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#dc2626" />
                     <stop offset="100%" stopColor="#991b1b" />
@@ -484,12 +728,13 @@ export const BusScene: React.FC<BusSceneProps> = ({
                 {(() => {
                   const slices = CABIN_ROAD_SLICES.map((i) => {
                     const t = i / (CABIN_ROAD_SLICES.length - 1);
-                    const depth = Math.pow(t, 2.1);
+                    const depth = Math.pow(t, 2.2);
                     const y = 280 + depth * 720;
-                    const lookAheadDist = drivenDist + (1 - t) * 180;
+                    const lookAheadDist = drivenDist + (1 - t) * 220;
                     const curve = getRoadCurve(lookAheadDist);
-                    const roadWidth = 36 + depth * 1480;
-                    const cx = 500 + curve.x * Math.pow(depth, 1.2);
+                    const curveFactor = Math.pow(1 - depth, 1.7);
+                    const cx = 500 + curve.x * curveFactor;
+                    const roadWidth = 44 + depth * 1440;
                     return {
                       depth,
                       y,
@@ -514,19 +759,19 @@ export const BusScene: React.FC<BusSceneProps> = ({
                   const rightRumbleInner = [...slices].reverse().map(s => `${s.right.toFixed(1)},${s.y.toFixed(1)}`).join(' L ');
                   const rightRumblePath = `M ${rightRumbleOuter} L ${rightRumbleInner} Z`;
 
-                  // Outer Guardrails
+                  // Outer Guardrails Following Road Curvature
                   const leftGuardrailPoints = slices.map(s => `${(s.left - 22 * s.depth).toFixed(1)},${(s.y - 14 * s.depth).toFixed(1)}`).join(' L ');
                   const rightGuardrailPoints = slices.map(s => `${(s.right + 22 * s.depth).toFixed(1)},${(s.y - 14 * s.depth).toFixed(1)}`).join(' L ');
 
                   return (
                     <>
-                      {/* Left & Right Terrain */}
+                      {/* Left & Right Terrain Polygons */}
                       <polygon points={`0,280 ${slices[0].left.toFixed(1)},280 ${slices[slices.length - 1].left.toFixed(1)},1000 -400,1000`} fill="url(#cabinLeftGround)" />
                       <polygon points={`1000,280 ${slices[0].right.toFixed(1)},280 ${slices[slices.length - 1].right.toFixed(1)},1000 1400,1000`} fill="url(#cabinRightGround)" />
 
-                      {/* Asphalt Road */}
+                      {/* Asphalt Road Surface */}
                       <path d={roadPath} fill="url(#cabinRoadGrad)" />
-                      <path d={roadPath} fill="#000000" opacity="0.2" />
+                      <path d={roadPath} fill="#000000" opacity="0.18" />
 
                       {/* Rumble Strips */}
                       <path d={leftRumblePath} fill="#e2e8f0" opacity="0.9" />
@@ -550,11 +795,11 @@ export const BusScene: React.FC<BusSceneProps> = ({
                         return <polygon key={`c-r-rumble-${idx}`} points={`${p1} ${p2} ${p3} ${p4}`} fill="url(#cabinRumbleRed)" opacity="0.85" />;
                       })}
 
-                      {/* Guardrails */}
+                      {/* Galvanized Steel Double-Beam Guardrails */}
                       <path d={leftGuardrailPoints} stroke="#94a3b8" strokeWidth="3.5" fill="none" opacity="0.85" />
                       <path d={rightGuardrailPoints} stroke="#94a3b8" strokeWidth="3.5" fill="none" opacity="0.85" />
 
-                      {/* Shoulder Lines */}
+                      {/* Solid White Shoulder Lines */}
                       {(() => {
                         const leftSolidLine = slices.map(s => `${(s.cx - s.roadWidth * 0.44).toFixed(1)},${s.y.toFixed(1)}`).join(' L ');
                         const rightSolidLine = slices.map(s => `${(s.cx + s.roadWidth * 0.44).toFixed(1)},${s.y.toFixed(1)}`).join(' L ');
@@ -566,7 +811,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
                         );
                       })()}
 
-                      {/* Center Double Yellow Lines */}
+                      {/* Center Double Amber Barrier Lines */}
                       {(() => {
                         const leftYellowLine = slices.map(s => `${(s.cx - 3.5 * s.depth).toFixed(1)},${s.y.toFixed(1)}`).join(' L ');
                         const rightYellowLine = slices.map(s => `${(s.cx + 3.5 * s.depth).toFixed(1)},${s.y.toFixed(1)}`).join(' L ');
@@ -578,14 +823,15 @@ export const BusScene: React.FC<BusSceneProps> = ({
                         );
                       })()}
 
-                      {/* Cat's Eyes Reflectors */}
+                      {/* Central Median Cat's Eye Reflectors */}
                       {CAT_EYE_INDICES.map((idx) => {
                         const t = ((idx / CAT_EYE_INDICES.length) + (safeNum(straightOffset) / CAT_EYE_INDICES.length)) % 1;
                         const depth = Math.pow(t, 2.2);
                         const y = safeNum(280 + depth * 720, 280);
-                        const lookAheadDist = drivenDist + (1 - t) * 180;
+                        const lookAheadDist = drivenDist + (1 - t) * 220;
                         const curve = getRoadCurve(lookAheadDist);
-                        const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
+                        const curveFactor = Math.pow(1 - depth, 1.7);
+                        const cx = safeNum(500 + curve.x * curveFactor, 500);
                         const rCircle = Math.max(0.8, safeNum(depth * 3.2, 0.8));
                         const opacity = depth < 0.04 ? depth / 0.04 : 1;
                         return (
@@ -601,10 +847,11 @@ export const BusScene: React.FC<BusSceneProps> = ({
                         const t = ((idx / LANE_DASH_INDICES.length) + (safeNum(straightOffset) / LANE_DASH_INDICES.length)) % 1;
                         const depth = Math.pow(t, 2.3);
                         const y = safeNum(280 + depth * 720, 280);
-                        const lookAheadDist = drivenDist + (1 - t) * 180;
+                        const lookAheadDist = drivenDist + (1 - t) * 220;
                         const curve = getRoadCurve(lookAheadDist);
-                        const roadWidth = safeNum(36 + depth * 1480, 36);
-                        const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
+                        const roadWidth = safeNum(44 + depth * 1440, 44);
+                        const curveFactor = Math.pow(1 - depth, 1.7);
+                        const cx = safeNum(500 + curve.x * curveFactor, 500);
                         const w = Math.max(0.2, safeNum(1.8 + depth * 18, 1.8));
                         const h = Math.max(0.2, safeNum(5 + depth * 55, 5));
                         const opacity = depth < 0.04 ? depth / 0.04 : 1;
@@ -620,60 +867,52 @@ export const BusScene: React.FC<BusSceneProps> = ({
                         );
                       })}
 
-                      {/* Overhead Green Highway Gantry Sign Board */}
-                      {(() => {
-                        const tG = (safeNum(straightOffset) * 0.4) % 1;
-                        const depthG = Math.pow(tG, 2.1);
-                        const lookAheadDist = drivenDist + (1 - depthG) * 180;
+                      {/* Cobra-Head Highway Light Posts */}
+                      {REAR_LAMP_INDICES.map((idx) => {
+                        const t = ((idx / REAR_LAMP_INDICES.length) + (safeNum(straightOffset) / REAR_LAMP_INDICES.length)) % 1;
+                        const depth = Math.pow(t, 2.1);
+                        const lookAheadDist = drivenDist + (1 - t) * 220;
                         const curve = getRoadCurve(lookAheadDist);
-
-                        const yGround = safeNum(280 + depthG * 720, 280);
-                        const roadWidth = safeNum(36 + depthG * 1480, 36);
-                        const cx = safeNum(500 + curve.x * Math.pow(depthG, 1.2), 500);
-
-                        const scale = Math.max(0.001, safeNum(0.06 + depthG * 1.8, 0.06));
-                        const opacityG = depthG < 0.04 ? depthG / 0.04 : depthG > 0.92 ? (1 - depthG) / 0.08 : 1;
+                        const roadWidth = safeNum(44 + depth * 1440, 44);
+                        const curveFactor = Math.pow(1 - depth, 1.7);
+                        const cx = safeNum(500 + curve.x * curveFactor, 500);
+                        const isLeft = idx % 2 === 0;
+                        const xPost = isLeft ? cx - roadWidth * 0.52 : cx + roadWidth * 0.52;
+                        const yPost = safeNum(280 + depth * 720, 280);
+                        const scale = Math.max(0.001, safeNum(0.06 + depth * 1.7, 0.06));
+                        const opacity = depth < 0.05 ? depth / 0.05 : 1;
 
                         return (
-                          <g transform={`translate(${cx.toFixed(1)}, ${yGround.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacityG, 1)}>
-                            <rect x={-roadWidth * 0.52} y="-280" width="16" height="280" fill="#334155" />
-                            <rect x={roadWidth * 0.52 - 16} y="-280" width="16" height="280" fill="#334155" />
-                            <rect x={-roadWidth * 0.55} y="-310" width={roadWidth * 1.1} height="30" fill="#1e293b" rx="4" />
-                            <line x1={-roadWidth * 0.55} y1="-295" x2={roadWidth * 0.55} y2="-295" stroke="#475569" strokeWidth="2" strokeDasharray="6,6" />
-                            <rect x="-240" y="-420" width="480" height="110" rx="12" fill="url(#cabinGantryGrad)" stroke="#f8fafc" strokeWidth="5" />
-                            <text x="0" y="-390" fill="#fef08a" fontSize="20" fontWeight="900" textAnchor="middle" fontFamily="sans-serif">
-                              NATIONAL HIGHWAY NH-44
-                            </text>
-                            <line x1="-200" y1="-380" x2="200" y2="-380" stroke="#f8fafc" strokeWidth="2" />
-                            <text x="-110" y="-352" fill="#ffffff" fontSize="16" fontWeight="800" textAnchor="middle" fontFamily="sans-serif">
-                              ⬅️ BENGALURU 120 KM
-                            </text>
-                            <text x="110" y="-352" fill="#ffffff" fontSize="16" fontWeight="800" textAnchor="middle" fontFamily="sans-serif">
-                              HYDERABAD 340 KM ➡️
-                            </text>
-                            <text x="0" y="-326" fill="#67e8f9" fontSize="12" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">
-                              KEEP LEFT FOR HEAVY VEHICLES & BUSES
-                            </text>
+                          <g key={`c-lamp-${idx}`} transform={`translate(${xPost.toFixed(1)}, ${yPost.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacity, 1)}>
+                            <ellipse cx={isLeft ? "120" : "-120"} cy="0" rx="90" ry="25" fill="#fef08a" opacity="0.14" />
+                            <line x1="0" y1="0" x2="0" y2="-260" stroke="#475569" strokeWidth="8" strokeLinecap="round" />
+                            <path d={isLeft ? "M 0 -260 C 20 -280 80 -290 120 -280" : "M 0 -260 C -20 -280 -80 -290 -120 -280"} stroke="#334155" strokeWidth="6" fill="none" />
+                            <circle cx={isLeft ? "120" : "-120"} cy="-280" r="12" fill="#fef08a" />
+                            <circle cx={isLeft ? "120" : "-120"} cy="-280" r="22" fill="#fef08a" opacity="0.35" />
                           </g>
                         );
-                      })()}
+                      })}
 
-                      {/* Roadside Trees */}
+                      {/* Roadside Trees Along Natural Highway Verge */}
                       {TREE_INDICES.map((idx) => {
                         const t = ((idx / TREE_INDICES.length) + (safeNum(straightOffset) / TREE_INDICES.length)) % 1;
-                        const depth = Math.pow(t, 2.2);
-                        const lookAheadDist = drivenDist + (1 - t) * 180;
+                        const depth = Math.pow(t, 2.1);
+                        const lookAheadDist = drivenDist + (1 - t) * 220;
                         const curve = getRoadCurve(lookAheadDist);
-                        const roadWidth = safeNum(36 + depth * 1480, 36);
-                        const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
-                        const x = safeNum(cx + roadWidth / 2 + 40 * depth);
-                        const y = safeNum(280 + depth * 720, 280);
-                        const scale = Math.max(0.001, safeNum(0.06 + depth * 1.8, 0.06));
+                        const roadWidth = safeNum(44 + depth * 1440, 44);
+                        const curveFactor = Math.pow(1 - depth, 1.7);
+                        const cx = safeNum(500 + curve.x * curveFactor, 500);
+                        const isLeft = idx % 2 === 0;
+                        const xTree = isLeft ? cx - roadWidth * 0.58 - 35 * depth : cx + roadWidth * 0.58 + 35 * depth;
+                        const yTree = safeNum(280 + depth * 720, 280);
+                        const scale = Math.max(0.001, safeNum(0.06 + depth * 1.6, 0.06));
                         const opacity = depth < 0.05 ? depth / 0.05 : 1;
                         return (
-                          <g key={`c-tree-${idx}`} transform={`translate(${x}, ${y}) scale(${scale})`} opacity={safeNum(opacity, 1)}>
-                            <circle cx="0" cy="-60" r="38" fill={currentConfig.treeColors[idx % currentConfig.treeColors.length]} />
-                            <rect x="-6" y="-28" width="12" height="28" fill="#451a03" rx="2" />
+                          <g key={`c-tree-${idx}`} transform={`translate(${xTree.toFixed(1)}, ${yTree.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacity, 1)}>
+                            <rect x="-8" y="-40" width="16" height="40" fill="#451a03" />
+                            <circle cx="0" cy="-80" r="40" fill={currentConfig.treeColors[idx % currentConfig.treeColors.length]} />
+                            <circle cx="-20" cy="-65" r="30" fill={currentConfig.treeColors[(idx + 1) % currentConfig.treeColors.length]} />
+                            <circle cx="20" cy="-65" r="30" fill={currentConfig.treeColors[(idx + 2) % currentConfig.treeColors.length]} />
                           </g>
                         );
                       })}
@@ -766,9 +1005,14 @@ export const BusScene: React.FC<BusSceneProps> = ({
             {/* BOTTOM DASHBOARD COCKPIT & INSTRUMENT INSTRUMENTATION */}
             <div className="w-full bg-stone-950/95 border-t-2 sm:border-t-4 border-stone-800/80 shadow-[0_-20px_60px_rgba(0,0,0,0.8)] px-2 sm:px-4 pt-2 sm:pt-3 pb-[54px] sm:pb-[62px] z-30 flex items-end justify-between short-screen-cockpit">
               {/* Driver Instrument Cluster (Speedometer, Tachometer, Turn Signals & Gauges) */}
-              <div className="relative flex items-center space-x-1.5 sm:space-x-3 bg-stone-900/95 border sm:border-2 border-stone-700/90 p-1.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-2xl backdrop-blur-sm animate-gauge-glow overflow-hidden short-screen-cluster mb-1 sm:mb-2">
+              <div 
+                className={`relative flex items-center space-x-1.5 sm:space-x-3 bg-stone-900/95 border sm:border-2 ${gaugeTheme.clusterBorder} p-1.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-2xl backdrop-blur-sm overflow-hidden short-screen-cluster mb-1 sm:mb-2 transition-all duration-500`}
+                style={{
+                  boxShadow: gaugeTheme.clusterGlow
+                }}
+              >
                 {/* Ambient Backlight Flicker Overlay */}
-                <div className="absolute inset-0 bg-amber-500/5 animate-gauge-flicker pointer-events-none z-0" />
+                <div className={`absolute inset-0 ${gaugeTheme.backlightFlicker} animate-gauge-flicker pointer-events-none z-0`} />
 
                 {/* Flashing Left Turn Signal */}
                 <div className={`relative z-10 text-xs sm:text-xl font-bold transition-all ${isTurningLeft ? 'text-emerald-400 animate-ping scale-125' : 'text-stone-700'}`}>
@@ -776,25 +1020,41 @@ export const BusScene: React.FC<BusSceneProps> = ({
                 </div>
 
                 {/* Speedometer Dial */}
-                <div className="relative z-10 w-16 h-16 sm:w-26 sm:h-26 rounded-full bg-stone-950 border sm:border-2 border-amber-500/90 flex items-center justify-center shadow-[inset_0_0_12px_rgba(245,158,11,0.3)] animate-gauge-flicker short-screen-speedometer">
-                  <div className="text-[7px] sm:text-[9px] font-mono font-black text-amber-400 absolute top-1 sm:top-2">KM/H</div>
-                  <div className="text-[9px] sm:text-xs font-mono font-bold text-amber-200 absolute bottom-1.5 sm:bottom-3">
+                <div 
+                  className={`relative z-10 w-16 h-16 sm:w-26 sm:h-26 rounded-full bg-stone-950 border sm:border-2 ${gaugeTheme.dialBorder} flex items-center justify-center animate-gauge-flicker short-screen-speedometer transition-all duration-500`}
+                  style={{
+                    boxShadow: gaugeTheme.dialShadow
+                  }}
+                >
+                  <div className={`text-[7px] sm:text-[9px] font-mono font-black ${gaugeTheme.textColor} absolute top-1 sm:top-2`}>KM/H</div>
+                  <div className={`text-[9px] sm:text-xs font-mono font-bold ${gaugeTheme.subTextColor} absolute bottom-1.5 sm:bottom-3`}>
                     {displayKm}
                   </div>
                   {/* Gauge Needle with Fluctuating Engine Jitter */}
                   <div
-                    className="w-0.5 sm:w-1 h-6 sm:h-11 bg-rose-500 rounded-t-full origin-bottom shadow-md transition-transform duration-75 ease-out"
-                    style={{ transform: `rotate(${speedNeedleDeg}deg)` }}
+                    className="w-0.5 sm:w-1 h-6 sm:h-11 rounded-t-full origin-bottom shadow-md transition-transform duration-75 ease-out"
+                    style={{ 
+                      transform: `rotate(${speedNeedleDeg}deg)`,
+                      backgroundColor: gaugeTheme.needleColor
+                    }}
                   />
                   <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-stone-300 absolute border border-stone-600 shadow-sm" />
                 </div>
 
                 {/* Tachometer (RPM) Dial */}
-                <div className="relative z-10 w-12 h-12 sm:w-22 sm:h-22 rounded-full bg-stone-950 border sm:border-2 border-slate-600 flex items-center justify-center shadow-[inset_0_0_10px_rgba(148,163,184,0.25)] hidden md:flex animate-gauge-flicker">
-                  <div className="text-[6px] sm:text-[8px] font-mono font-black text-slate-400 absolute top-1">RPM</div>
+                <div 
+                  className={`relative z-10 w-12 h-12 sm:w-22 sm:h-22 rounded-full bg-stone-950 border sm:border-2 ${gaugeTheme.dialBorder} flex items-center justify-center hidden md:flex animate-gauge-flicker transition-all duration-500`}
+                  style={{
+                    boxShadow: gaugeTheme.dialShadow
+                  }}
+                >
+                  <div className={`text-[6px] sm:text-[8px] font-mono font-black ${gaugeTheme.textColor} absolute top-1`}>RPM</div>
                   <div
-                    className="w-0.5 h-5 sm:h-9 bg-amber-400 rounded-t-full origin-bottom shadow-md transition-transform duration-75 ease-out"
-                    style={{ transform: `rotate(${rpmNeedleDeg}deg)` }}
+                    className="w-0.5 h-5 sm:h-9 rounded-t-full origin-bottom shadow-md transition-transform duration-75 ease-out"
+                    style={{ 
+                      transform: `rotate(${rpmNeedleDeg}deg)`,
+                      backgroundColor: gaugeTheme.needleColor
+                    }}
                   />
                   <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-stone-400 absolute" />
                 </div>
@@ -807,7 +1067,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
                 {/* Digital Trip Odometer & Air Pressure */}
                 <div className="relative z-10 flex flex-col text-[8px] sm:text-[10px] font-mono text-amber-300/90 pl-1 border-l border-stone-800">
                   <span className="text-stone-400 text-[7px] sm:text-[8px]">TRIP</span>
-                  <span className="text-[10px] sm:text-sm font-extrabold text-amber-400 animate-indicator-glow">
+                  <span className={`text-[10px] sm:text-sm font-extrabold ${gaugeTheme.textColor} animate-indicator-glow`}>
                     {(drivenDist / 8.0).toFixed(1)} KM
                   </span>
                   <span className="text-emerald-400 text-[7px] sm:text-[8px] mt-0.5 font-bold animate-indicator-glow hidden xs:inline">120 PSI</span>
@@ -823,10 +1083,17 @@ export const BusScene: React.FC<BusSceneProps> = ({
                   {/* Steering Spokes */}
                   <div className="w-full h-2 sm:h-4 bg-stone-800 absolute" />
                   <div className="w-2 sm:w-4 h-full bg-stone-800 absolute" />
-                  {/* Central Steering Megaphone Horn */}
-                  <div className="z-10 short-screen-horn">
-                    <MegaphoneHorn size={48} hornVolume={0.85} showText={false} />
-                  </div>
+                  {/* Central Steering Wheel Hub Boss */}
+                  <button 
+                    type="button"
+                    onClick={() => playBusHorn(0.85)}
+                    className="z-10 w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-stone-800 via-stone-900 to-stone-950 border-2 border-stone-700/80 shadow-[inset_0_1px_2px_rgba(255,255,255,0.15),0_4px_10px_rgba(0,0,0,0.85)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+                    title="Bus Steering Wheel Horn Boss"
+                  >
+                    <div className="w-6 h-6 sm:w-9 sm:h-9 rounded-full border border-stone-600/60 bg-stone-950 flex items-center justify-center text-stone-400 text-[10px] sm:text-xs">
+                      <span className="opacity-70">📯</span>
+                    </div>
+                  </button>
                 </div>
               </div>
 
@@ -879,8 +1146,11 @@ export const BusScene: React.FC<BusSceneProps> = ({
             </div>
           </div>
 
-          {/* Horizon Mountain Silhouette & Snow Peaks */}
-          <div className="absolute inset-x-0 top-[12%] h-[18%] pointer-events-none opacity-85">
+          {/* Horizon Mountain Silhouette & Snow Peaks with Parallax Turning */}
+          <div 
+            className="absolute inset-x-0 top-[12%] h-[18%] pointer-events-none opacity-85 transition-transform duration-100 ease-out"
+            style={{ transform: `translate3d(${-currentCurve.x * 0.12}px, 0, 0)` }}
+          >
             <svg className="w-full h-full" viewBox="0 0 1000 120" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="perspMountainGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -921,26 +1191,26 @@ export const BusScene: React.FC<BusSceneProps> = ({
                   <stop offset="0%" stopColor="#234a22" />
                   <stop offset="100%" stopColor="#112a1d" />
                 </linearGradient>
-                <linearGradient id="gantryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#15803d" />
-                  <stop offset="100%" stopColor="#064e3b" />
-                </linearGradient>
                 <linearGradient id="rumbleRed" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stopColor="#dc2626" />
                   <stop offset="100%" stopColor="#991b1b" />
                 </linearGradient>
               </defs>
 
-              {/* Dynamic Curved Perspective Highway Surface and Environment */}
+              {/* Dynamic Perspective Highway Surface & Realistic Road Geometry */}
               {(() => {
                 const slices = REAR_ROAD_SLICES.map((i) => {
                   const t = i / (REAR_ROAD_SLICES.length - 1); // 0 (horizon) to 1 (foreground)
-                  const depth = Math.pow(t, 2.1);
-                  const y = 280 + depth * 720; // High Horizon (280) occupying 72% height!
-                  const lookAheadDist = drivenDist + (1 - t) * 180;
+                  const depth = Math.pow(t, 2.2);
+                  const y = 280 + depth * 720;
+                  const lookAheadDist = drivenDist + (1 - t) * 220;
                   const curve = getRoadCurve(lookAheadDist);
-                  const roadWidth = 36 + depth * 1480; // Expands wide into foreground!
-                  const cx = 500 + curve.x * Math.pow(depth, 1.2);
+                  
+                  // Natural 3D Perspective Curvature:
+                  // Road under vehicle stays grounded, horizon curves gracefully
+                  const curveFactor = Math.pow(1 - depth, 1.7);
+                  const cx = 500 + curve.x * curveFactor;
+                  const roadWidth = 44 + depth * 1440;
                   return {
                     depth,
                     y,
@@ -979,8 +1249,8 @@ export const BusScene: React.FC<BusSceneProps> = ({
                     {/* Main Multi-Lane Asphalt Expressway Surface */}
                     <path d={roadPath} fill="url(#straightRoadGrad)" />
 
-                    {/* Dark Worn Rubber Tire Tracks in Driving Lanes */}
-                    <path d={roadPath} fill="#000000" opacity="0.22" />
+                    {/* Subtle Center Asphalt Tire Wear Track */}
+                    <path d={roadPath} fill="#000000" opacity="0.18" />
 
                     {/* Red-White Concrete Rumble Strips on Outer Shoulder Edges */}
                     <path d={leftRumblePath} fill="#e2e8f0" opacity="0.9" />
@@ -1004,7 +1274,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
                       return <polygon key={`r-rumble-${idx}`} points={`${p1} ${p2} ${p3} ${p4}`} fill="url(#rumbleRed)" opacity="0.85" />;
                     })}
 
-                    {/* Galvanized Steel Double-Beam Guardrails */}
+                    {/* Galvanized Steel Double-Beam Guardrails Following Curve */}
                     <path d={leftGuardrailPoints} stroke="#94a3b8" strokeWidth="3.5" fill="none" opacity="0.85" />
                     <path d={rightGuardrailPoints} stroke="#94a3b8" strokeWidth="3.5" fill="none" opacity="0.85" />
 
@@ -1037,9 +1307,10 @@ export const BusScene: React.FC<BusSceneProps> = ({
                       const t = ((idx / CAT_EYE_INDICES.length) + (safeNum(straightOffset) / CAT_EYE_INDICES.length)) % 1;
                       const depth = Math.pow(t, 2.2);
                       const y = safeNum(280 + depth * 720, 280);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
+                      const lookAheadDist = drivenDist + (1 - t) * 220;
                       const curve = getRoadCurve(lookAheadDist);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
+                      const curveFactor = Math.pow(1 - depth, 1.7);
+                      const cx = safeNum(500 + curve.x * curveFactor, 500);
                       const rCircle = Math.max(0.8, safeNum(depth * 3.2, 0.8));
                       const opacity = depth < 0.04 ? depth / 0.04 : 1;
                       return (
@@ -1055,10 +1326,11 @@ export const BusScene: React.FC<BusSceneProps> = ({
                       const t = ((idx / LANE_DASH_INDICES.length) + (safeNum(straightOffset) / LANE_DASH_INDICES.length)) % 1;
                       const depth = Math.pow(t, 2.3);
                       const y = safeNum(280 + depth * 720, 280);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
+                      const lookAheadDist = drivenDist + (1 - t) * 220;
                       const curve = getRoadCurve(lookAheadDist);
-                      const roadWidth = safeNum(36 + depth * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
+                      const roadWidth = safeNum(44 + depth * 1440, 44);
+                      const curveFactor = Math.pow(1 - depth, 1.7);
+                      const cx = safeNum(500 + curve.x * curveFactor, 500);
                       const w = Math.max(0.2, safeNum(1.8 + depth * 18, 1.8));
                       const h = Math.max(0.2, safeNum(5 + depth * 55, 5));
                       const opacity = depth < 0.04 ? depth / 0.04 : 1;
@@ -1076,177 +1348,52 @@ export const BusScene: React.FC<BusSceneProps> = ({
                       );
                     })}
 
-                    {/* Overhead Green Highway Sign Gantry (NH-44 Expressway) */}
-                    {(() => {
-                      const tG = (safeNum(straightOffset) * 0.4) % 1;
-                      const depthG = Math.pow(tG, 2.1);
-                      const lookAheadDist = drivenDist + (1 - depthG) * 180;
-                      const curve = getRoadCurve(lookAheadDist);
-
-                      const yGround = safeNum(280 + depthG * 720, 280);
-                      const roadWidth = safeNum(36 + depthG * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depthG, 1.2), 500);
-
-                      const scale = Math.max(0.001, safeNum(0.06 + depthG * 1.8, 0.06));
-                      const opacityG = depthG < 0.04 ? depthG / 0.04 : depthG > 0.92 ? (1 - depthG) / 0.08 : 1;
-
-                      return (
-                        <g transform={`translate(${cx.toFixed(1)}, ${yGround.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacityG, 1)}>
-                          {/* Gantry Steel Posts */}
-                          <rect x={-roadWidth * 0.52} y="-280" width="16" height="280" fill="#334155" />
-                          <rect x={roadWidth * 0.52 - 16} y="-280" width="16" height="280" fill="#334155" />
-
-                          {/* Horizontal Cross Truss */}
-                          <rect x={-roadWidth * 0.55} y="-310" width={roadWidth * 1.1} height="30" fill="#1e293b" rx="4" />
-                          <line x1={-roadWidth * 0.55} y1="-295" x2={roadWidth * 0.55} y2="-295" stroke="#475569" strokeWidth="2" strokeDasharray="6,6" />
-
-                          {/* Large Green Overhead Highway Board */}
-                          <rect x="-240" y="-420" width="480" height="110" rx="12" fill="url(#gantryGrad)" stroke="#f8fafc" strokeWidth="5" />
-
-                          {/* Board Header & Route */}
-                          <text x="0" y="-390" fill="#fef08a" fontSize="20" fontWeight="900" textAnchor="middle" fontFamily="sans-serif">
-                            NATIONAL HIGHWAY NH-44
-                          </text>
-                          <line x1="-200" y1="-380" x2="200" y2="-380" stroke="#f8fafc" strokeWidth="2" />
-
-                          {/* Dest / Lane Directions */}
-                          <text x="-110" y="-352" fill="#ffffff" fontSize="16" fontWeight="800" textAnchor="middle" fontFamily="sans-serif">
-                            ⬅️ BENGALURU 120 KM
-                          </text>
-                          <text x="110" y="-352" fill="#ffffff" fontSize="16" fontWeight="800" textAnchor="middle" fontFamily="sans-serif">
-                            HYDERABAD 340 KM ➡️
-                          </text>
-                          <text x="0" y="-326" fill="#67e8f9" fontSize="12" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">
-                            KEEP LEFT FOR HEAVY VEHICLES & BUSES
-                          </text>
-                        </g>
-                      );
-                    })()}
-
-                    {/* Tall Cobra-Head Highway Light Posts with Soft Glow */}
+                    {/* Roadside Cobra-Head Street Lamps along Highway Verge */}
                     {REAR_LAMP_INDICES.map((idx) => {
                       const t = ((idx / REAR_LAMP_INDICES.length) + (safeNum(straightOffset) / REAR_LAMP_INDICES.length)) % 1;
                       const depth = Math.pow(t, 2.1);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
+                      const lookAheadDist = drivenDist + (1 - t) * 220;
                       const curve = getRoadCurve(lookAheadDist);
-                      const roadWidth = safeNum(36 + depth * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
+                      const roadWidth = safeNum(44 + depth * 1440, 44);
+                      const curveFactor = Math.pow(1 - depth, 1.7);
+                      const cx = safeNum(500 + curve.x * curveFactor, 500);
                       const isLeft = idx % 2 === 0;
-                      const xPost = isLeft ? cx - roadWidth * 0.53 : cx + roadWidth * 0.53;
+                      const xPost = isLeft ? cx - roadWidth * 0.52 : cx + roadWidth * 0.52;
                       const yPost = safeNum(280 + depth * 720, 280);
                       const scale = Math.max(0.001, safeNum(0.06 + depth * 1.7, 0.06));
                       const opacity = depth < 0.05 ? depth / 0.05 : 1;
 
                       return (
                         <g key={`lamp-${idx}`} transform={`translate(${xPost.toFixed(1)}, ${yPost.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacity, 1)}>
-                          {/* Ground Light Cone on Asphalt */}
-                          <ellipse cx={isLeft ? "120" : "-120"} cy="0" rx="90" ry="25" fill="#fef08a" opacity="0.18" />
-
-                          {/* Tall Steel Pole */}
+                          {/* Ground Soft Warm Light Cone */}
+                          <ellipse cx={isLeft ? "120" : "-120"} cy="0" rx="90" ry="25" fill="#fef08a" opacity="0.14" />
+                          {/* Steel Pole */}
                           <line x1="0" y1="0" x2="0" y2="-260" stroke="#475569" strokeWidth="8" strokeLinecap="round" />
                           {/* Curved Cobra Arm */}
                           <path d={isLeft ? "M 0 -260 C 20 -280 80 -290 120 -280" : "M 0 -260 C -20 -280 -80 -290 -120 -280"} stroke="#334155" strokeWidth="6" fill="none" />
                           {/* Cobra Fixture Head */}
                           <circle cx={isLeft ? "120" : "-120"} cy="-280" r="12" fill="#fef08a" />
-                          <circle cx={isLeft ? "120" : "-120"} cy="-280" r="22" fill="#fef08a" opacity="0.4" />
+                          <circle cx={isLeft ? "120" : "-120"} cy="-280" r="22" fill="#fef08a" opacity="0.35" />
                         </g>
                       );
                     })}
 
-                    {/* Catenary Electric Wires Connecting Left Utility Poles */}
-                    {(() => {
-                      const poleCoords = REAR_POLE_INDICES.map((idx) => {
-                        const t = ((idx / REAR_POLE_INDICES.length) + (safeNum(straightOffset) / REAR_POLE_INDICES.length)) % 1;
-                        const depth = Math.pow(t, 2.1);
-                        const lookAheadDist = drivenDist + (1 - t) * 180;
-                        const curve = getRoadCurve(lookAheadDist);
-                        const roadWidth = safeNum(36 + depth * 1480, 36);
-                        const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
-                        const x = safeNum(cx - roadWidth / 2 - 35 * depth);
-                        const y = safeNum(280 + depth * 720 - 110 * (0.06 + depth * 1.6), 280);
-                        return { x, y, depth, t };
-                      }).sort((a, b) => a.t - b.t);
-
-                      const wirePath = poleCoords.reduce((acc, p, i) => {
-                        if (i === 0) return `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-                        const prev = poleCoords[i - 1];
-                        const mx = (prev.x + p.x) / 2;
-                        const my = (prev.y + p.y) / 2 + 7 * p.depth;
-                        if (isNaN(mx) || isNaN(my) || isNaN(p.x) || isNaN(p.y)) return acc;
-                        return `${acc} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-                      }, '');
-
-                      return <path d={wirePath} stroke="#64748b" strokeWidth="1.2" fill="none" opacity="0.65" />;
-                    })()}
-
-                    {/* Left Utility Power Poles along Perspective Curve */}
-                    {REAR_POLE_INDICES.map((idx) => {
-                      const t = ((idx / REAR_POLE_INDICES.length) + (safeNum(straightOffset) / REAR_POLE_INDICES.length)) % 1;
-                      const depth = Math.pow(t, 2.1);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
-                      const curve = getRoadCurve(lookAheadDist);
-                      const roadWidth = safeNum(36 + depth * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
-                      const x = safeNum(cx - roadWidth / 2 - 35 * depth);
-                      const y = safeNum(280 + depth * 720, 280);
-                      const scale = Math.max(0.001, safeNum(0.06 + depth * 1.6, 0.06));
-                      const opacity = depth < 0.05 ? depth / 0.05 : 1;
-                      return (
-                        <g key={idx} transform={`translate(${x}, ${y}) scale(${scale})`} opacity={safeNum(opacity, 1)}>
-                          <line x1="0" y1="0" x2="0" y2="-120" stroke="#451a03" strokeWidth="12" strokeLinecap="round" />
-                          <line x1="-35" y1="-100" x2="35" y2="-100" stroke="#78350f" strokeWidth="8" strokeLinecap="round" />
-                          <circle cx="-30" cy="-105" r="4" fill="#fbbf24" />
-                          <circle cx="30" cy="-105" r="4" fill="#fbbf24" />
-                        </g>
-                      );
-                    })}
-
-                    {/* Roadside Warning Signs on Right Shoulder */}
-                    {REAR_SIGN_INDICES.map((idx) => {
-                      const t = ((idx / REAR_SIGN_INDICES.length) + (safeNum(straightOffset) / REAR_SIGN_INDICES.length) + 0.12) % 1;
-                      const depth = Math.pow(t, 2.1);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
-                      const curve = getRoadCurve(lookAheadDist);
-                      const roadWidth = safeNum(36 + depth * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
-                      const x = safeNum(cx + roadWidth / 2 + 25 * depth);
-                      const y = safeNum(280 + depth * 720, 280);
-                      const scale = Math.max(0.001, safeNum(0.06 + depth * 1.5, 0.06));
-                      const opacity = depth < 0.05 ? depth / 0.05 : 1;
-                      const signType = idx % 2;
-
-                      return (
-                        <g key={idx} transform={`translate(${x}, ${y}) scale(${scale})`} opacity={safeNum(opacity, 1)}>
-                          <line x1="0" y1="0" x2="0" y2="-70" stroke="#475569" strokeWidth="6" />
-                          {signType === 0 ? (
-                            <g transform="translate(0, -95)">
-                              <polygon points="0,-35 -30,20 30,20" fill="#f59e0b" stroke="#78350f" strokeWidth="4" />
-                              <path d="M -10 10 Q 0 -15 12 -5" stroke="#000000" strokeWidth="5" fill="none" strokeLinecap="round" />
-                            </g>
-                          ) : (
-                            <g transform="translate(0, -95)">
-                              <circle cx="0" cy="0" r="28" fill="#ffffff" stroke="#dc2626" strokeWidth="6" />
-                              <text x="0" y="8" fill="#000000" fontSize="22" fontWeight="900" textAnchor="middle" fontFamily="sans-serif">80</text>
-                            </g>
-                          )}
-                        </g>
-                      );
-                    })}
-
-                    {/* Right Trees & Foliage along Highway Scenery */}
+                    {/* Roadside Trees & Lush Greenery along Natural Highway Scenery */}
                     {TREE_INDICES.map((idx) => {
                       const t = ((idx / TREE_INDICES.length) + (safeNum(straightOffset) / TREE_INDICES.length)) % 1;
                       const depth = Math.pow(t, 2.1);
-                      const lookAheadDist = drivenDist + (1 - t) * 180;
+                      const lookAheadDist = drivenDist + (1 - t) * 220;
                       const curve = getRoadCurve(lookAheadDist);
-                      const roadWidth = safeNum(36 + depth * 1480, 36);
-                      const cx = safeNum(500 + curve.x * Math.pow(depth, 1.2), 500);
-                      const x = safeNum(cx + roadWidth / 2 + 45 * depth);
-                      const y = safeNum(280 + depth * 720, 280);
+                      const roadWidth = safeNum(44 + depth * 1440, 44);
+                      const curveFactor = Math.pow(1 - depth, 1.7);
+                      const cx = safeNum(500 + curve.x * curveFactor, 500);
+                      const isLeft = idx % 2 === 0;
+                      const xTree = isLeft ? cx - roadWidth * 0.58 - 35 * depth : cx + roadWidth * 0.58 + 35 * depth;
+                      const yTree = safeNum(280 + depth * 720, 280);
                       const scale = Math.max(0.001, safeNum(0.06 + depth * 1.6, 0.06));
                       const opacity = depth < 0.05 ? depth / 0.05 : 1;
                       return (
-                        <g key={idx} transform={`translate(${x}, ${y}) scale(${scale})`} opacity={safeNum(opacity, 1)}>
+                        <g key={idx} transform={`translate(${xTree.toFixed(1)}, ${yTree.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacity, 1)}>
                           <rect x="-8" y="-40" width="16" height="40" fill="#451a03" />
                           <circle cx="0" cy="-80" r="40" fill={currentConfig.treeColors[idx % currentConfig.treeColors.length]} />
                           <circle cx="-20" cy="-65" r="30" fill={currentConfig.treeColors[(idx + 1) % currentConfig.treeColors.length]} />
@@ -1257,176 +1404,23 @@ export const BusScene: React.FC<BusSceneProps> = ({
                   </>
                 );
               })()}
-
-              {/* Highway Milestone Marker Zooming Past on Right Shoulder */}
-              {(() => {
-                const tM = (safeNum(straightOffset) * 1.5) % 1;
-                const depthM = Math.pow(tM, 2.1);
-                const xM = safeNum(500 + depthM * 480, 500);
-                const yM = safeNum(280 + depthM * 720, 280);
-                const scaleM = Math.max(0.001, safeNum(0.05 + depthM * 1.4, 0.05));
-                const opacityM = depthM < 0.05 ? depthM / 0.05 : 1;
-                return (
-                  <g transform={`translate(${xM}, ${yM}) scale(${scaleM})`} opacity={safeNum(opacityM, 1)}>
-                    <path d="M -20 -40 L -20 -10 C -20 0 20 0 20 -10 L 20 -40 Z" fill="#fef08a" stroke="#78350f" strokeWidth="3" />
-                    <rect x="-20" y="-70" width="40" height="30" rx="15" fill="#f59e0b" stroke="#78350f" strokeWidth="3" />
-                    <text x="0" y="-52" fill="#451a03" fontSize="12" fontWeight="bold" textAnchor="middle" fontFamily="monospace">NH44</text>
-                  </g>
-                );
-              })()}
-
-              {/* Realistic Highway Side Billboard */}
-              {(() => {
-                const tG = (safeNum(straightOffset) * 0.5) % 1;
-                const depthG = Math.pow(tG, 2.1);
-                const lookAheadDist = drivenDist + (1 - depthG) * 180;
-                const curve = getRoadCurve(lookAheadDist);
-
-                const yGround = safeNum(280 + depthG * 720, 280);
-                const roadWidth = safeNum(36 + depthG * 1480, 36);
-                const cx = safeNum(500 + curve.x * Math.pow(depthG, 1.2), 500);
-
-                const xPole = cx - roadWidth / 2 - 50 * depthG - 30;
-
-                const scale = Math.max(0.001, safeNum(0.07 + depthG * 1.7, 0.07));
-                const opacityG = depthG < 0.04 ? depthG / 0.04 : depthG > 0.92 ? (1 - depthG) / 0.08 : 1;
-
-                const msgIdx = Math.floor((drivenDist / 180) % 4);
-                const ads = [
-                  {
-                    header: "NH-44 EXPRESSWAY",
-                    title: "SAFAR LO-FI RADIO",
-                    sub: "100.8 FM • RETRO HIGHWAY VIBES",
-                    footer: "FEEL THE MUSIC • DRIVE SAFE",
-                    bg: "#1e3a8a"
-                  },
-                  {
-                    header: "WELCOME TO HIGHWAY",
-                    title: "GARDEN CITY 45 KM",
-                    sub: "EXPRESSWAY ROUTE",
-                    footer: "DRIVE SLOW • ENJOY THE SCENERY",
-                    bg: "#15803d"
-                  },
-                  {
-                    header: "HIGHWAY DHABA & CHAI",
-                    title: "FRESH TIF-IN & COFFEE",
-                    sub: "NEXT EXIT 2 KM • OPEN 24/7",
-                    footer: "HOT TEA • LO-FI LOUNGE • PARKING",
-                    bg: "#b45309"
-                  },
-                  {
-                    header: "NOSTALGIC EXPRESS",
-                    title: "HORN OK PLEASE",
-                    sub: "BUS RADIO 1982 • LIVE",
-                    footer: "SAFE JOURNEY TO ALL DRIVERS",
-                    bg: "#6b21a8"
-                  }
-                ];
-                const ad = ads[msgIdx];
-
-                return (
-                  <g transform={`translate(${xPole.toFixed(1)}, ${yGround.toFixed(1)}) scale(${scale.toFixed(3)})`} opacity={safeNum(opacityG, 1)}>
-                    {/* Ground Shadow */}
-                    <ellipse cx="0" cy="5" rx="35" ry="8" fill="#000000" opacity="0.3" />
-
-                    {/* Main Steel Monopole Support Column */}
-                    <rect x="-10" y="-220" width="20" height="220" fill="#1e293b" rx="2" />
-                    <rect x="-8" y="-220" width="5" height="220" fill="#334155" />
-
-                    {/* Ladder on Right Side */}
-                    <line x1="10" y1="0" x2="10" y2="-210" stroke="#475569" strokeWidth="2.5" />
-                    <line x1="18" y1="0" x2="18" y2="-210" stroke="#475569" strokeWidth="2.5" />
-                    {Array.from({ length: 14 }).map((_, i) => (
-                      <line key={i} x1="10" y1={-i * 15} x2="18" y2={-i * 15} stroke="#64748b" strokeWidth="2" />
-                    ))}
-
-                    {/* Diagonal Brackets */}
-                    <line x1="-90" y1="-218" x2="-10" y2="-170" stroke="#475569" strokeWidth="4" />
-                    <line x1="90" y1="-218" x2="10" y2="-170" stroke="#475569" strokeWidth="4" />
-
-                    {/* Maintenance Platform */}
-                    <rect x="-120" y="-228" width="240" height="10" fill="#334155" rx="2" stroke="#0f172a" strokeWidth="1.5" />
-                    <line x1="-120" y1="-223" x2="120" y2="-223" stroke="#64748b" strokeWidth="1" strokeDasharray="3,3" />
-
-                    {/* Billboard Panel */}
-                    <rect x="-135" y="-355" width="270" height="125" rx="10" fill="#334155" stroke="#1e293b" strokeWidth="4" />
-                    <rect x="-130" y="-350" width="260" height="115" rx="7" fill="#ffffff" />
-                    <rect x="-126" y="-346" width="252" height="107" rx="5" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1" />
-
-                    {/* Header */}
-                    <rect x="-126" y="-346" width="252" height="30" rx="4" fill={ad.bg} />
-                    <text x="0" y="-326" fill="#ffffff" fontSize="14" fontWeight="900" textAnchor="middle" fontFamily="sans-serif" letterSpacing="1">
-                      {ad.header}
-                    </text>
-
-                    {/* Headline */}
-                    <text x="0" y="-296" fill="#0f172a" fontSize="16" fontWeight="900" textAnchor="middle" fontFamily="sans-serif">
-                      {ad.title}
-                    </text>
-
-                    {/* Subtitle */}
-                    <text x="0" y="-278" fill="#2563eb" fontSize="11" fontWeight="800" textAnchor="middle" fontFamily="sans-serif">
-                      {ad.sub}
-                    </text>
-
-                    <line x1="-90" y1="-264" x2="90" y2="-264" stroke="#cbd5e1" strokeWidth="1.5" />
-
-                    {/* Footer */}
-                    <text x="0" y="-248" fill="#475569" fontSize="10" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">
-                      {ad.footer}
-                    </text>
-
-                    {/* Spotlights */}
-                    {[-75, 0, 75].map((xOff, idx) => (
-                      <g key={idx} transform={`translate(${xOff}, -355)`}>
-                        <path d="M 0 0 C -2 -12 -6 -18 -12 -22" stroke="#1e293b" strokeWidth="3.5" fill="none" />
-                        <ellipse cx="-12" cy="-22" rx="7" ry="3.5" fill="#0f172a" />
-                        <path d="M -18 -20 L -6 -20 L -2 -13 L -22 -13 Z" fill="#334155" />
-                        <polygon points="-20,-13 -4,-13 15,35 -30,35" fill="#fef08a" opacity="0.22" />
-                      </g>
-                    ))}
-                  </g>
-                );
-              })()}
             </svg>
           </div>
-
-          {/* Roadside Bus Stop Shelter in Straight View Mode when at bus stop */}
-          {isAtBusStop && (
-            <div className="absolute top-[38%] right-[12%] z-25 flex flex-col items-center animate-bounce">
-              <div className="bg-amber-950/90 text-amber-100 border-2 border-amber-600 px-4 py-2 rounded-xl shadow-2xl flex flex-col items-center">
-                <div className="flex items-center space-x-2 text-sm font-black text-amber-400 font-serif">
-                  <span>🚏</span>
-                  <span className="tracking-wide uppercase">{currentStopName || currentConfig.stops[0].name}</span>
-                </div>
-                <span className="text-[10px] text-amber-300/80 font-mono mt-0.5">{currentConfig.stops[0].tagline}</span>
-              </div>
-              <div className="w-2 h-16 bg-amber-950 border-x border-amber-800" />
-            </div>
-          )}
 
           {/* Ambient Sunset Glow Overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-amber-600/20 via-rose-500/10 to-transparent pointer-events-none z-20 mix-blend-color-dodge" />
           <div className="absolute inset-0 pointer-events-none z-25 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(2,6,23,0.65)_100%)]" />
         </div>
 
-        {/* AUTOMATICALLY STEERING REAR-VIEW BUS FOLLOWING ROAD CURVE */}
+        {/* NATURALLY STEERING REAR-VIEW BUS FOLLOWING ROAD CURVE */}
         <div
-          className="absolute bottom-[48px] sm:bottom-[56px] left-1/2 w-[98vw] sm:w-[480px] md:w-[540px] h-[48vh] sm:h-[50vh] md:h-[52vh] max-h-[580px] z-30 pointer-events-none flex flex-col items-center justify-end transition-all duration-100 ease-out"
+          className="absolute bottom-[48px] sm:bottom-[56px] left-1/2 w-[98vw] sm:w-[480px] md:w-[540px] h-[48vh] sm:h-[50vh] md:h-[52vh] max-h-[580px] z-30 pointer-events-none flex flex-col items-center justify-end transition-all duration-150 ease-out"
           style={{
-            transform: `translateX(calc(-50% + ${currentCurve.x * 0.75}px)) rotate(${-currentCurve.angle * 0.35}deg)`
+            transform: `translateX(calc(-50% + ${currentCurve.x * 0.10}px)) rotate(${currentCurve.angle * 0.14}deg)`
           }}
         >
           {/* Ground shadow beneath bus tires */}
           <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-[88%] h-3 bg-slate-950/80 rounded-full blur-[3px] pointer-events-none z-0" />
-
-        {/* LOUDSPEAKER MEGAPHONE HORN MOUNTED JUST UP FROM BUS TOP */}
-        <div 
-          className="absolute left-1/2 -translate-x-1/2 -top-8 sm:-top-11 z-40 flex items-center pointer-events-auto"
-          title="Tap Horn to Honk (Rooftop Red Megaphone Horn)"
-        >
-          <MegaphoneHorn size={52} hornVolume={0.85} showText={true} />
-        </div>
 
           <svg
             viewBox="0 0 320 280"
@@ -1439,15 +1433,15 @@ export const BusScene: React.FC<BusSceneProps> = ({
           >
             <defs>
               <linearGradient id="rearBusBody" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#38bdf8" />
-                <stop offset="25%" stopColor="#0284c7" />
-                <stop offset="70%" stopColor="#1d4ed8" />
+                <stop offset="0%" stopColor="#0284c7" />
+                <stop offset="25%" stopColor="#0369a1" />
+                <stop offset="70%" stopColor="#1e3a8a" />
                 <stop offset="100%" stopColor="#0f172a" />
               </linearGradient>
               <linearGradient id="rearGoldStripe" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#fef08a" />
-                <stop offset="50%" stopColor="#fbbf24" />
-                <stop offset="100%" stopColor="#f59e0b" />
+                <stop offset="0%" stopColor="#fbbf24" />
+                <stop offset="50%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#d97706" />
               </linearGradient>
               <linearGradient id="rearWindowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#bae6fd" stopOpacity="0.25" />
@@ -1507,7 +1501,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
               strokeWidth="3"
             />
 
-            {/* Roof Luggage Rack & Tarpaulin Covered Luggage */}
+            {/* Classic Roof Luggage Rack & Tarpaulin */}
             <g>
               <rect x="45" y="8" width="230" height="10" rx="3" fill="#334155" stroke="#1e293b" strokeWidth="1.5" />
               <path d="M 60 10 Q 110 -2 160 10 Q 210 -2 260 10 Z" fill="#d97706" />
@@ -1530,7 +1524,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
 
             {/* Destination Sign Banner at Top Center */}
             <rect x="90" y="24" width="140" height="18" rx="4" fill="#000000" stroke="#f59e0b" strokeWidth="1.5" />
-            <text x="160" y="36" fill="#fbbf24" fontSize="9" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+            <text x="160" y="36" fill="#fef08a" fontSize="9" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
               STRAIGHT ROAD EXPRESS
             </text>
 
@@ -2057,14 +2051,6 @@ export const BusScene: React.FC<BusSceneProps> = ({
         {/* Soft Oval Overall Chassis Ground Shadow directly underneath bus wheels */}
         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-[92%] h-3 bg-stone-950/80 rounded-full blur-[3px] pointer-events-none z-0" />
 
-        {/* LOUDSPEAKER MEGAPHONE HORN MOUNTED JUST UP FROM BUS TOP */}
-        <div 
-          className="absolute left-[24%] sm:left-[30%] md:left-[35%] -top-7 sm:-top-9 md:-top-12 z-40 flex items-center pointer-events-auto"
-          title="Tap Horn to Honk (Rooftop Red Megaphone Horn)"
-        >
-          <MegaphoneHorn size={54} hornVolume={0.85} showText={true} />
-        </div>
-
         {/* 2D Vector Blue Express Bus (Scaled Proportionally, Placed Directly On Road) */}
         <svg
           viewBox="0 0 460 198"
@@ -2076,20 +2062,19 @@ export const BusScene: React.FC<BusSceneProps> = ({
           }`}
         >
           <defs>
-            {/* Rich Metallic Royal Blue Gradient */}
+            {/* Rich Metallic Body Gradient */}
             <linearGradient id="busBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="20%" stopColor="#0284c7" />
-              <stop offset="55%" stopColor="#2563eb" />
-              <stop offset="85%" stopColor="#1e40af" />
-              <stop offset="100%" stopColor="#172554" />
+              <stop offset="0%" stopColor="#0284c7" />
+              <stop offset="20%" stopColor="#0369a1" />
+              <stop offset="55%" stopColor="#1e3a8a" />
+              <stop offset="85%" stopColor="#0f172a" />
+              <stop offset="100%" stopColor="#020617" />
             </linearGradient>
-            {/* Vibrant Gold Racing Stripe */}
+            {/* Vibrant Racing Stripe Gradient */}
             <linearGradient id="goldStripeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#fef08a" />
-              <stop offset="25%" stopColor="#fbbf24" />
-              <stop offset="70%" stopColor="#f59e0b" />
-              <stop offset="100%" stopColor="#b45309" />
+              <stop offset="0%" stopColor="#fbbf24" />
+              <stop offset="50%" stopColor="#f59e0b" />
+              <stop offset="100%" stopColor="#d97706" />
             </linearGradient>
             {/* Glass Reflection Gradient - Translucent Tinted Glass */}
             <linearGradient id="glassGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -2130,10 +2115,31 @@ export const BusScene: React.FC<BusSceneProps> = ({
             fill="url(#busBodyGrad)"
           />
 
+          {/* Classic Roof Luggage Rack */}
+          <g>
+            <rect x="40" y="8" width="310" height="6" rx="2" fill="#475569" />
+            <path d="M 60 8 Q 120 -2 180 8 Q 240 -2 300 8 Z" fill="#d97706" />
+            <line x1="90" y1="8" x2="90" y2="1" stroke="#fbbf24" strokeWidth="1.5" />
+            <line x1="150" y1="8" x2="150" y2="1" stroke="#fbbf24" strokeWidth="1.5" />
+            <line x1="210" y1="8" x2="210" y2="1" stroke="#fbbf24" strokeWidth="1.5" />
+
+            {/* Integrated Red Roof Loudspeaker Horn (Mounted on luggage rack) */}
+            <g transform="translate(315, 0) scale(0.7)">
+              {/* Mounting Stand */}
+              <line x1="12" y1="12" x2="12" y2="16" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
+              {/* Back Cylinder */}
+              <rect x="2" y="7" width="6" height="6" rx="1" fill="#991b1b" stroke="#450a0a" strokeWidth="1" />
+              {/* Front Flare Cone */}
+              <path d="M 8 8 L 22 4 L 22 16 L 8 12 Z" fill="#dc2626" stroke="#450a0a" strokeWidth="1" />
+              {/* Flare Rim */}
+              <ellipse cx="22" cy="10" rx="1.5" ry="6" fill="#ef4444" stroke="#450a0a" strokeWidth="1" />
+            </g>
+          </g>
+
           {/* Natural Roof Contour Highlight */}
           <path
             d="M 48 16 L 388 16 C 418 16 440 32 443 65"
-            stroke="#bae6fd"
+            stroke="#38bdf8"
             strokeWidth="2"
             opacity="0.45"
             fill="none"
@@ -2154,10 +2160,17 @@ export const BusScene: React.FC<BusSceneProps> = ({
             fill="url(#sheenGrad)"
           />
 
-          {/* Deep Midnight Indigo Lower Skirt */}
+          {/* Classic Decals & Graphics */}
+          <g>
+            <text x="210" y="136" fill="#ffffff" fontSize="9" fontFamily="serif" fontWeight="bold" letterSpacing="2">
+              ★ ALL INDIA PERMIT ★
+            </text>
+          </g>
+
+          {/* Deep Lower Skirt */}
           <path
             d="M 15 142 L 448 142 L 448 155 L 15 155 Z"
-            fill="#0f172a"
+            fill="#090d16"
           />
 
           {/* Top Front LED Destination Display Banner */}
@@ -2476,7 +2489,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
           <g>
             <circle cx="112" cy="155" r="40" fill="#0f172a" />
             <circle cx="112" cy="155" r="34" fill="#334155" />
-            <circle cx="112" cy="155" r="23" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="2.5" />
+            <circle cx="112" cy="155" r="23" fill="#e2e8f0" stroke="#fbbf24" strokeWidth="2.5" />
             {/* Rotating Alloy Spokes */}
             <g
               style={{
@@ -2495,7 +2508,7 @@ export const BusScene: React.FC<BusSceneProps> = ({
           <g>
             <circle cx="332" cy="155" r="40" fill="#0f172a" />
             <circle cx="332" cy="155" r="34" fill="#334155" />
-            <circle cx="332" cy="155" r="23" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="2.5" />
+            <circle cx="332" cy="155" r="23" fill="#e2e8f0" stroke="#fbbf24" strokeWidth="2.5" />
             {/* Rotating Alloy Spokes */}
             <g
               style={{

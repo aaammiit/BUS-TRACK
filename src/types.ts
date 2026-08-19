@@ -1,6 +1,7 @@
 export type SceneType = 'autumn' | 'mountain' | 'night' | 'rainy' | 'straight';
 export type JourneySpeed = 'slow' | 'normal' | 'fast';
 export type ViewMode = 'straight' | 'side' | 'cabin';
+export type HornRhythm = 'classic' | 'double' | 'rhythmic';
 
 export interface Song {
   id: string;

@@ -1,21 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { StatusBar, Style } from '@capacitor/status-bar';
-import { Song, SceneType, JourneySpeed, ViewMode } from './types';
+import { Song, SceneType, JourneySpeed, ViewMode, HornRhythm } from './types';
 import { getPresetSongs } from './data/presetSongs';
 import { getAllSongsFromDB, saveSongToDB, deleteSongFromDB } from './utils/db';
-import { playBusHorn } from './utils/audioSynth';
+import { playBusHorn, setGlobalHornRhythm, updateRoadRumble, stopRoadRumbleAudio } from './utils/audioSynth';
 import { SCENES } from './data/scenes';
 import { BusScene } from './components/BusScene';
 import { MinimalPlayer } from './components/MinimalPlayer';
 import { PlaylistPanel } from './components/PlaylistPanel';
 import { isAndroidNative, fetchAndroidMediaStoreAudio, resolvePlayableSongUrl } from './utils/mediaStore';
+import { initKeepAwakeManager } from './utils/keepAwake';
 import { X } from 'lucide-react';
 
 export default function App() {
-  // Capacitor Android Mobile Initialization (Landscape Lock & Fullscreen Status Bar)
+  // Capacitor Android Mobile Initialization (Landscape Lock, Status Bar & Keep Screen Awake)
   useEffect(() => {
+    // Prevent Android screen from sleeping / dimming automatically
+    const cleanupKeepAwake = initKeepAwakeManager();
+
     if (Capacitor.isNativePlatform()) {
       ScreenOrientation.lock({ orientation: 'landscape' }).catch((err) => {
         console.warn('Screen orientation lock error:', err);
@@ -33,11 +38,16 @@ export default function App() {
         // Safe fallback for web preview iframe
       }
     }
+
+    return () => {
+      cleanupKeepAwake();
+    };
   }, []);
 
   // Playlist & Player State
   const [playlist, setPlaylist] = useState<Song[]>([]);
   const [currentSongIndex, setCurrentSongIndex] = useState<number>(0);
+  const currentSong = playlist[currentSongIndex] || null;
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
@@ -45,6 +55,7 @@ export default function App() {
   // Audio Volumes
   const [musicVolume, setMusicVolume] = useState<number>(0.8);
   const [hornVolume, setHornVolume] = useState<number>(0.85);
+  const [hornRhythm, setHornRhythm] = useState<HornRhythm>('classic');
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
   // Playback Modes
@@ -62,6 +73,73 @@ export default function App() {
   // Audio Ref
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const isPlaylistOpenRef = useRef<boolean>(isPlaylistOpen);
+  useEffect(() => { isPlaylistOpenRef.current = isPlaylistOpen; }, [isPlaylistOpen]);
+
+  // Android Hardware Back Button Handler
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let sub: { remove: () => void } | null = null;
+    CapApp.addListener('backButton', ({ canGoBack }) => {
+      if (isPlaylistOpenRef.current) {
+        setIsPlaylistOpen(false);
+      } else if (canGoBack) {
+        window.history.back();
+      } else {
+        CapApp.minimizeApp();
+      }
+    }).then((listener) => {
+      sub = listener;
+    }).catch(() => {});
+
+    return () => {
+      if (sub) {
+        sub.remove();
+      }
+    };
+  }, []);
+
+  // Android System Notification & Lockscreen MediaSession Controller
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentSong) return;
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentSong.title || 'Desi Bus Track',
+        artist: currentSong.artist || 'Desi Bus Horn & Music',
+        album: 'Highway Journey FM',
+        artwork: [
+          { src: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=192&q=80', sizes: '192x192', type: 'image/jpeg' },
+          { src: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=512&q=80', sizes: '512x512', type: 'image/jpeg' }
+        ]
+      });
+
+      navigator.mediaSession.setActionHandler('play', () => {
+        setIsPlaying(true);
+        safePlay();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        setIsPlaying(false);
+        safePause();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        handlePrev();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        handleNext();
+      });
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined && audioRef.current) {
+          audioRef.current.currentTime = details.seekTime;
+          setCurrentTime(details.seekTime);
+        }
+      });
+    } catch (e) {
+      console.warn('MediaSession initialization warning:', e);
+    }
+  }, [currentSong, isPlaying]);
+
   // Sync state to refs to eliminate stale closure bugs
   const playlistRef = useRef<Song[]>(playlist);
   const currentSongIndexRef = useRef<number>(currentSongIndex);
@@ -69,6 +147,7 @@ export default function App() {
   const isShuffleRef = useRef<boolean>(isShuffle);
   const sceneTypeRef = useRef<SceneType>(sceneType);
   const hornVolumeRef = useRef<number>(hornVolume);
+  const hornRhythmRef = useRef<HornRhythm>(hornRhythm);
   const isPlayingRef = useRef<boolean>(isPlaying);
   const hasTriggeredCompletionRef = useRef<boolean>(false);
 
@@ -78,7 +157,21 @@ export default function App() {
   useEffect(() => { isShuffleRef.current = isShuffle; }, [isShuffle]);
   useEffect(() => { sceneTypeRef.current = sceneType; }, [sceneType]);
   useEffect(() => { hornVolumeRef.current = hornVolume; }, [hornVolume]);
+  useEffect(() => { 
+    hornRhythmRef.current = hornRhythm;
+    setGlobalHornRhythm(hornRhythm);
+  }, [hornRhythm]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
+  // Road Rumble Audio synchronization: continuously plays while bus is moving, adapts to journeySpeed
+  useEffect(() => {
+    const isMoving = isPlaying && !isAtBusStop;
+    updateRoadRumble(journeySpeed, isMoving, isMuted, musicVolume > 0 ? 1.0 : 0);
+
+    return () => {
+      stopRoadRumbleAudio();
+    };
+  }, [isPlaying, isAtBusStop, journeySpeed, isMuted, musicVolume]);
 
   // Helper functions for safe play/pause without AbortError noise
   const safePlay = () => {
@@ -125,13 +218,13 @@ export default function App() {
       currentSceneObj.stops[Math.floor(Math.random() * currentSceneObj.stops.length)];
     setCurrentStopName(randomStop.name);
 
-    // 1. Song finishes completely -> Stop music & Halt bus journey at bus stop shelter
+    // 1. Song finishes completely -> Stop music & Halt bus journey at bus stop shelter (No auto-playback)
     setIsPlaying(false);
     isPlayingRef.current = false;
     setIsAtBusStop(true);
     playBusHorn(hornVolumeRef.current * 0.7); // Gentle arrival honk!
 
-    // Determine next song index
+    // Determine next song index to queue
     const nextIndex = isRepeatRef.current
       ? currentIdx
       : getNextSongIndex(currentIdx, list.length, isShuffleRef.current);
@@ -139,24 +232,19 @@ export default function App() {
     const scenesList: SceneType[] = ['straight', 'autumn', 'mountain', 'night', 'rainy'];
     const nextScene = scenesList[nextIndex % scenesList.length];
 
-    // 2. Keep the bus stopped for 1 second, then automatically start next song & resume driving
+    // Transition scene and queue next song, waiting for manual user play
     setTimeout(() => {
       hasTriggeredCompletionRef.current = false;
       setSceneType(nextScene);
-      setIsAtBusStop(false);
-
-      isPlayingRef.current = true;
-      setIsPlaying(true);
 
       if (nextIndex === currentIdx) {
         if (audioRef.current) {
           audioRef.current.currentTime = 0;
-          safePlay();
         }
       } else {
         setCurrentSongIndex(nextIndex);
       }
-    }, 1000);
+    }, 800);
   };
 
   const handleSongCompletionRef = useRef(handleSongCompletion);
@@ -164,11 +252,12 @@ export default function App() {
     handleSongCompletionRef.current = handleSongCompletion;
   });
 
-  // 1. Initialize Preset Songs and Local Songs (from MediaStore on Android, plus IndexedDB)
+  // 1. Initialize Preset Songs, Local Songs, and Android MediaStore
   useEffect(() => {
-    async function loadAllSongs() {
+    async function loadInitialData() {
       const presets = getPresetSongs();
       const savedUserSongs = await getAllSongsFromDB();
+
       let nativeMediaStoreSongs: Song[] = [];
 
       if (isAndroidNative()) {
@@ -189,7 +278,7 @@ export default function App() {
       const combined = [...presets, ...savedUserSongs, ...filteredNative];
       setPlaylist(combined);
     }
-    loadAllSongs();
+    loadInitialData();
   }, []);
 
   // 2. Setup Single Audio Element for entire lifetime
@@ -240,8 +329,6 @@ export default function App() {
   }, [musicVolume, isMuted]);
 
   // Load active song into audio element when song index or playlist changes
-  const currentSong = playlist[currentSongIndex] || null;
-
   useEffect(() => {
     if (!currentSong || !audioRef.current) return;
 
@@ -312,8 +399,32 @@ export default function App() {
   };
 
   const handleManualHorn = () => {
-    playBusHorn(hornVolume);
+    playBusHorn(hornVolumeRef.current, hornRhythmRef.current);
   };
+
+  const handleCycleHornRhythm = () => {
+    const order: HornRhythm[] = ['classic', 'double', 'rhythmic'];
+    const curIdx = order.indexOf(hornRhythmRef.current);
+    const nextRhythm = order[(curIdx + 1) % order.length];
+    setHornRhythm(nextRhythm);
+  };
+
+  // Keyboard shortcut listener: H for honk, R for cycling rhythm mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        handleManualHorn();
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        handleCycleHornRhythm();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleAddSongs = async (files: FileList) => {
     const newSongs: Song[] = [];
@@ -423,6 +534,8 @@ export default function App() {
         sceneType={sceneType}
         viewMode={viewMode}
         onViewModeChange={(vm) => setViewMode(vm)}
+        hornRhythm={hornRhythm}
+        onToggleHornRhythm={(r) => setHornRhythm(r)}
         isPlaying={isPlaying}
         isAtBusStop={isAtBusStop}
         currentStopName={currentStopName}
@@ -442,6 +555,8 @@ export default function App() {
         duration={duration}
         musicVolume={musicVolume}
         hornVolume={hornVolume}
+        hornRhythm={hornRhythm}
+        onHornRhythmChange={(r) => setHornRhythm(r)}
         isMuted={isMuted}
         isShuffle={isShuffle}
         isRepeat={isRepeat}
