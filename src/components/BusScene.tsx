@@ -22,6 +22,7 @@ interface BusSceneProps {
   onSceneChange?: (sceneType: SceneType) => void;
   onSpeedChange?: (speed: JourneySpeed) => void;
   onToggleRadio?: () => void;
+  onResumeJourney?: () => void;
 }
 
 const safeNum = (v: number, fallback: number = 0) => (isNaN(v) || !isFinite(v) ? fallback : v);
@@ -123,7 +124,8 @@ export const BusScene: React.FC<BusSceneProps> = ({
   onViewModeChange,
   onSceneChange,
   onSpeedChange,
-  onToggleRadio
+  onToggleRadio,
+  onResumeJourney
 }) => {
   const scene: SceneConfig = SCENES[sceneType] || SCENES.autumn;
   const [manualHalt, setManualHalt] = useState(false);
@@ -491,7 +493,10 @@ export const BusScene: React.FC<BusSceneProps> = ({
       <BusStopOverlay
         isAtBusStop={effectiveIsAtBusStop}
         currentStopName={currentStopName}
-        onResumeJourney={() => setManualHalt(false)}
+        onResumeJourney={() => {
+          setManualHalt(false);
+          if (onResumeJourney) onResumeJourney();
+        }}
       />
 
       {/* TOP-LEFT CORNER INTERACTIVE MEGAPHONE HORN (NO CONTAINER BOX, NO TEXT) */}

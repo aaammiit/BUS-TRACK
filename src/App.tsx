@@ -150,6 +150,9 @@ export default function App() {
   const hornRhythmRef = useRef<HornRhythm>(hornRhythm);
   const isPlayingRef = useRef<boolean>(isPlaying);
   const hasTriggeredCompletionRef = useRef<boolean>(false);
+  const busStopTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const nextSongIndexPendingRef = useRef<number | null>(null);
+  const nextScenePendingRef = useRef<SceneType | null>(null);
 
   useEffect(() => { playlistRef.current = playlist; }, [playlist]);
   useEffect(() => { currentSongIndexRef.current = currentSongIndex; }, [currentSongIndex]);
@@ -204,7 +207,43 @@ export default function App() {
     return (current + 1) % total;
   };
 
-  // 3. Seamless Track Completion & Automatic Bus Stop Routine
+  // 3. Seamless Track Completion & Automatic / Manual Bus Stop Resume Routine
+  const resumeFromBusStop = () => {
+    if (busStopTimerRef.current) {
+      clearTimeout(busStopTimerRef.current);
+      busStopTimerRef.current = null;
+    }
+
+    hasTriggeredCompletionRef.current = false;
+    setIsAtBusStop(false);
+
+    const list = playlistRef.current;
+    if (!list || list.length === 0) return;
+
+    const currentIdx = currentSongIndexRef.current;
+    const targetIdx = nextSongIndexPendingRef.current !== null
+      ? nextSongIndexPendingRef.current
+      : getNextSongIndex(currentIdx, list.length, isShuffleRef.current);
+
+    const targetScene = nextScenePendingRef.current || 'autumn';
+    setSceneType(targetScene);
+
+    nextSongIndexPendingRef.current = null;
+    nextScenePendingRef.current = null;
+
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+
+    if (targetIdx === currentIdx) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        safePlay();
+      }
+    } else {
+      setCurrentSongIndex(targetIdx);
+    }
+  };
+
   const handleSongCompletion = () => {
     const list = playlistRef.current;
     if (!list || list.length === 0) return;
@@ -218,9 +257,10 @@ export default function App() {
       currentSceneObj.stops[Math.floor(Math.random() * currentSceneObj.stops.length)];
     setCurrentStopName(randomStop.name);
 
-    // 1. Song finishes completely -> Stop music & Halt bus journey at bus stop shelter (No auto-playback)
+    // 1. Song finishes completely -> Halt bus journey at bus stop shelter for a brief stop
     setIsPlaying(false);
     isPlayingRef.current = false;
+    safePause();
     setIsAtBusStop(true);
     playBusHorn(hornVolumeRef.current * 0.7); // Gentle arrival honk!
 
@@ -232,19 +272,17 @@ export default function App() {
     const scenesList: SceneType[] = ['straight', 'autumn', 'mountain', 'night', 'rainy'];
     const nextScene = scenesList[nextIndex % scenesList.length];
 
-    // Transition scene and queue next song, waiting for manual user play
-    setTimeout(() => {
-      hasTriggeredCompletionRef.current = false;
-      setSceneType(nextScene);
+    nextSongIndexPendingRef.current = nextIndex;
+    nextScenePendingRef.current = nextScene;
 
-      if (nextIndex === currentIdx) {
-        if (audioRef.current) {
-          audioRef.current.currentTime = 0;
-        }
-      } else {
-        setCurrentSongIndex(nextIndex);
-      }
-    }, 800);
+    if (busStopTimerRef.current) {
+      clearTimeout(busStopTimerRef.current);
+    }
+
+    // 2. Halt at bus stop for ~3.5 seconds (tea break / conductor atmosphere), then automatically resume journey with next song
+    busStopTimerRef.current = setTimeout(() => {
+      resumeFromBusStop();
+    }, 3500);
   };
 
   const handleSongCompletionRef = useRef(handleSongCompletion);
@@ -359,6 +397,11 @@ export default function App() {
   const handlePlayPause = () => {
     if (!audioRef.current || !currentSong) return;
 
+    if (isAtBusStop) {
+      resumeFromBusStop();
+      return;
+    }
+
     if (isPlaying) {
       setIsPlaying(false);
       safePause();
@@ -370,15 +413,28 @@ export default function App() {
 
   const handleNext = () => {
     if (playlist.length === 0) return;
+    if (busStopTimerRef.current) {
+      clearTimeout(busStopTimerRef.current);
+      busStopTimerRef.current = null;
+    }
+    setIsAtBusStop(false);
+    hasTriggeredCompletionRef.current = false;
     const nextIdx = getNextSongIndex(currentSongIndex, playlist.length, isShuffle);
     const scenesList: SceneType[] = ['straight', 'autumn', 'mountain', 'night', 'rainy'];
     setSceneType(scenesList[nextIdx % scenesList.length]);
     setCurrentSongIndex(nextIdx);
     setIsPlaying(true);
+    isPlayingRef.current = true;
   };
 
   const handlePrev = () => {
     if (playlist.length === 0) return;
+    if (busStopTimerRef.current) {
+      clearTimeout(busStopTimerRef.current);
+      busStopTimerRef.current = null;
+    }
+    setIsAtBusStop(false);
+    hasTriggeredCompletionRef.current = false;
     let prevIdx: number;
     if (isShuffle) {
       prevIdx = Math.floor(Math.random() * playlist.length);
@@ -389,6 +445,7 @@ export default function App() {
     setSceneType(scenesList[prevIdx % scenesList.length]);
     setCurrentSongIndex(prevIdx);
     setIsPlaying(true);
+    isPlayingRef.current = true;
   };
 
   const handleSeek = (time: number) => {
@@ -545,6 +602,7 @@ export default function App() {
         onSceneChange={(st) => setSceneType(st)}
         onSpeedChange={(spd) => setJourneySpeed(spd)}
         onToggleRadio={() => setIsPlaylistOpen(!isPlaylistOpen)}
+        onResumeJourney={resumeFromBusStop}
       />
 
       {/* 2. VINTAGE FLOATING BUS RADIO PLAYER */}
